@@ -190,6 +190,7 @@ export type ClientMsg =
   | { t: "create_character"; character: NewCharacterInput }
   | { t: "spectate" }
   | { t: "leave_character" }
+  | { t: "update_backstory"; text: string }
   | { t: "say"; text: string; aloud: boolean }
   | { t: "unsay"; id: number }
   | { t: "send_to_dm" }
@@ -218,6 +219,7 @@ export const STAT_BASE = 10;
 export const STAT_POINTS = 8; // extra points above base 10; lowering a stat below 10 refunds points
 export const MAX_ABILITIES = 3;
 export const MAX_ITEMS = 6;
+export const BACKSTORY_MAX = 3000; // about 500 words
 
 export const modifier = (score: number) => Math.floor((score - 10) / 2);
 export const maxHealthFor = (stamina: number) => 14 + 2 * modifier(stamina);

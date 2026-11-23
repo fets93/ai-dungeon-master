@@ -81,7 +81,14 @@ HOW YOU WORK
 - Do not mention game mechanics in prose (no "you take 4 damage"); the screen shows those. Describe them in fiction.
 - Plain prose only: no markdown headings, no bullet lists.
 
-Campaign strictness: ${s.config.strictness}.`;
+Campaign strictness: ${s.config.strictness}.${backstories(s)}`;
+}
+
+// Backstories change rarely, so they live in the cached system prompt instead of the per-turn context.
+function backstories(s: GameState): string {
+  const list = s.characters.filter((c) => c.ownerId && c.backstory);
+  if (!list.length) return "";
+  return `\n\nCHARACTER BACKSTORIES (weave in hooks from these over time; never contradict them):\n${list.map((c) => `${c.name}: ${c.backstory}`).join("\n\n")}`;
 }
 
 export function dmTurnContext(s: GameState, playersText: string, extra = ""): string {

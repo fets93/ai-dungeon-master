@@ -68,8 +68,9 @@ export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
   }
   const actor = said.match(/\n(\w[\w' -]*?) \(said aloud\)/)?.[1];
   if (/attack/i.test(said) && !/MODE: combat/.test(t)) calls.push(tool("start_combat", { enemies: [{ name: "Dock Thug", health: 8, defense: 12 }] }));
-  if (/blow lands/.test(said) && /success/.test(said)) calls.push(tool("apply_damage", { target: "Dock Thug", amount: 5 }));
+  // Enemy strikes back first, so the test sees an enemy attack even when the player's blow kills it.
   if (/MODE: combat/.test(t) && actor) calls.push(tool("enemy_attack", { enemy: "Dock Thug", target: actor, attack_bonus: 3, damage: 3 }));
+  if (/blow lands/.test(said) && /success/.test(said)) calls.push(tool("apply_damage", { target: "Dock Thug", amount: 3 }));
   if (/flee|surrender|end the fight/i.test(said)) calls.push(tool("end_combat", {}));
   if (calls.length === 0) calls.push(tool("add_fact", { fact: "Mock: something happened." }));
   return msg(p.model, [text("…"), ...calls], "tool_use");

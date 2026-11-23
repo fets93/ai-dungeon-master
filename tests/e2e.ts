@@ -107,6 +107,12 @@ async function main() {
   await b.until(() => b.errors.length > 1, "pin error");
   check(b.errors.at(-1)?.includes("PIN"), "PIN protects a character");
 
+  // Long backstory at creation, then edited later
+  const longStory = "A".repeat(2500);
+  b.send({ t: "update_backstory", text: longStory });
+  await b.until(() => b.you?.character?.backstory.length === 2500, "backstory update");
+  check(b.you?.character?.backstory.length === 2500, "long backstory (2500 chars) saved via edit");
+
   // Privacy: Ben never receives Anna's full sheet
   check(!JSON.stringify(b.last).includes("Lucky Break"), "other players' sheets are not sent to Ben");
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    BACKSTORY_MAX,
     MAX_ABILITIES,
     MAX_ITEMS,
     STATS,
@@ -126,8 +127,9 @@
     <button type="button" class="ghost" onclick={() => items.push("")}>+ Add item</button>
   {/if}
 
-  <label for="backstory">Backstory (optional, the DM uses it)</label>
-  <textarea id="backstory" bind:value={backstory} rows="3" maxlength="500"></textarea>
+  <label for="backstory">Backstory (optional, the DM weaves it into the story)</label>
+  <textarea id="backstory" bind:value={backstory} rows="6" maxlength={BACKSTORY_MAX}></textarea>
+  <p class="small muted count">{backstory.length}/{BACKSTORY_MAX}</p>
 
   <label for="pin">PIN (optional, 4 digits, so nobody else can take this character)</label>
   <input id="pin" bind:value={pin} inputmode="numeric" maxlength="4" placeholder="1234" />
@@ -190,6 +192,10 @@
   }
   .item {
     margin-bottom: 0.35rem;
+  }
+  .count {
+    text-align: right;
+    margin: 0.2rem 0 0;
   }
   .actions {
     margin-top: 1.25rem;

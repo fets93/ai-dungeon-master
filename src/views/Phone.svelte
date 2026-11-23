@@ -188,7 +188,7 @@
     {:else if tab === "character"}
       <section class="pad scroll">
         {#if me}
-          <Sheet c={me} />
+          <Sheet c={me} onSaveBackstory={(text) => game.send({ t: "update_backstory", text })} />
           <div class="row wrap actions">
             <button onclick={() => confirm("Let go of this character? You can pick it again later.") && game.send({ t: "leave_character" })}>Switch character</button>
             <button class="ghost" onclick={() => game.send({ t: "spectate" })}>Just watch</button>

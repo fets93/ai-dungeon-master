@@ -238,7 +238,7 @@ export function activeCombatantId(s: GameState): string | null {
   return s.combat.order[s.combat.index] ?? null;
 }
 
-export function describeCharacters(s: GameState): string {
+export function describeCharacters(s: GameState, withBackstory = false): string {
   const list = s.characters.filter((c) => c.present || (c.ownerId && s.started));
   return list
     .map((c) => {
@@ -248,7 +248,7 @@ export function describeCharacters(s: GameState): string {
         .join("; ");
       const inv = c.inventory.map((i) => `${i.qty}x ${i.name}`).join(", ") || "nothing";
       const away = c.present ? "" : " [player absent this session: keep in the background]";
-      return `- ${c.name}${away}, ${c.concept}. Health ${c.health}/${c.maxHealth}. ${stats}.\n  Abilities: ${abil || "none"}\n  Inventory: ${inv}\n  Conditions: ${c.conditions.join(", ") || "none"}${c.backstory ? `\n  Backstory: ${c.backstory}` : ""}`;
+      return `- ${c.name}${away}, ${c.concept}. Health ${c.health}/${c.maxHealth}. ${stats}.\n  Abilities: ${abil || "none"}\n  Inventory: ${inv}\n  Conditions: ${c.conditions.join(", ") || "none"}${withBackstory && c.backstory ? `\n  Backstory: ${c.backstory}` : ""}`;
     })
     .join("\n");
 }

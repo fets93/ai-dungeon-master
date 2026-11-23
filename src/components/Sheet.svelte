@@ -1,8 +1,19 @@
 <script lang="ts">
-  import { STATS, modifier, type Character } from "../../shared/types";
+  import { BACKSTORY_MAX, STATS, modifier, type Character } from "../../shared/types";
   import HealthBar from "./HealthBar.svelte";
 
-  let { c }: { c: Character } = $props();
+  let { c, onSaveBackstory }: { c: Character; onSaveBackstory?: (text: string) => void } = $props();
+
+  let editing = $state(false);
+  let draft = $state("");
+  function startEdit() {
+    draft = c.backstory;
+    editing = true;
+  }
+  function save() {
+    onSaveBackstory?.(draft.trim());
+    editing = false;
+  }
 </script>
 
 <div class="sheet">
@@ -56,9 +67,21 @@
     <p class="muted small">Empty pockets.</p>
   {/if}
 
-  {#if c.backstory}
-    <h3>Backstory</h3>
-    <p class="small">{c.backstory}</p>
+  <div class="row bshead">
+    <h3 class="grow">Backstory</h3>
+    {#if onSaveBackstory && !editing}<button class="ghost small" onclick={startEdit}>{c.backstory ? "Edit" : "Add"}</button>{/if}
+  </div>
+  {#if editing}
+    <textarea bind:value={draft} rows="10" maxlength={BACKSTORY_MAX} aria-label="Backstory"></textarea>
+    <div class="row">
+      <span class="small muted grow">{draft.length}/{BACKSTORY_MAX}</span>
+      <button class="ghost" onclick={() => (editing = false)}>Cancel</button>
+      <button class="primary" onclick={save}>Save</button>
+    </div>
+  {:else if c.backstory}
+    <p class="small story">{c.backstory}</p>
+  {:else}
+    <p class="muted small">No backstory yet.</p>
   {/if}
 </div>
 
@@ -115,6 +138,15 @@
     list-style: none;
     padding: 0;
     margin: 0;
+  }
+  .bshead {
+    margin-top: 1.25rem;
+  }
+  .bshead h3 {
+    margin: 0;
+  }
+  .story {
+    white-space: pre-wrap;
   }
   .inv li {
     display: flex;

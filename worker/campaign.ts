@@ -2,6 +2,7 @@
 // the WebSocket hub for the main screen and the phones, and the place where the DM runs.
 import { DurableObject } from "cloudflare:workers";
 import {
+  BACKSTORY_MAX,
   MAX_ABILITIES,
   MAX_ITEMS,
   STATS,
@@ -211,6 +212,15 @@ export class Campaign extends DurableObject<Env> {
         return this.broadcast();
       }
 
+      case "update_backstory": {
+        needPlayer();
+        const c = myCharacter();
+        if (!c) throw new Error("You don't have a character.");
+        c.backstory = String(msg.text ?? "").trim().slice(0, BACKSTORY_MAX);
+        await this.save();
+        return this.broadcast();
+      }
+
       case "spectate":
       case "leave_character": {
         const p = needPlayer();
@@ -335,7 +345,7 @@ export class Campaign extends DurableObject<Env> {
       id: `c-${crypto.randomUUID().slice(0, 8)}`,
       name,
       concept: String(input.concept ?? "").trim().slice(0, 80) || "Adventurer",
-      backstory: String(input.backstory ?? "").trim().slice(0, 500),
+      backstory: String(input.backstory ?? "").trim().slice(0, BACKSTORY_MAX),
       stats,
       health: maxHealth,
       maxHealth,
