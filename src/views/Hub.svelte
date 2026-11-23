@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { CampaignSummary, Strictness } from "../../shared/types";
+  import { APP_VERSION } from "../../shared/version";
 
   let campaigns = $state<CampaignSummary[] | null>(null);
   let error = $state<string | null>(null);
@@ -162,6 +163,8 @@
       </div>
     {/if}
   </section>
+
+  <footer class="small muted">Version {APP_VERSION}</footer>
 
   {#if error}<div class="toast" role="alert">{error}</div>{/if}
 </main>

@@ -3,6 +3,7 @@
 import type { CampaignConfig, GameState, Strictness } from "../shared/types";
 import { Campaign } from "./campaign";
 import { Registry } from "./registry";
+import { APP_VERSION } from "../shared/version";
 
 export { Campaign, Registry };
 
@@ -94,6 +95,7 @@ export default {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
     try {
+      if (parts[0] === "api" && parts[1] === "version") return json({ version: APP_VERSION });
       if (parts[0] === "api" && parts[1] === "campaigns") return await api(request, env, parts.slice(1));
       if (parts[0] === "ws" && parts[1]) {
         const code = parts[1].toUpperCase();
