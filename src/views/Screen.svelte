@@ -5,6 +5,7 @@
   import Feed from "../components/Feed.svelte";
   import HealthBar from "../components/HealthBar.svelte";
   import Avatar from "../components/Avatar.svelte";
+  import Invite from "../components/Invite.svelte";
   import { avatarUrl } from "../../shared/types";
   import { Narrator } from "../lib/voice.svelte";
   import type { VoiceMode, VoicesResponse } from "../../shared/types";
@@ -124,6 +125,7 @@
         {#if qr}<img src={qr} alt="QR code to join" />{/if}
         <p>Scan to join, or open <b>{location.host}</b> and enter</p>
         <div class="code big">{v.code}</div>
+        <div class="invitebox"><Invite {code} title={v.title} /></div>
       </div>
       <div class="card">
         <h2>At the table</h2>
@@ -171,6 +173,7 @@
           <div class="code">{v.code}</div>
         </div>
       </div>
+      <Invite {code} title={v.title} compact />
 
       {@render voicePanel(v)}
 
@@ -277,6 +280,10 @@
     width: 100%;
     max-width: 320px;
     border-radius: 12px;
+  }
+  .invitebox {
+    margin-top: 1rem;
+    text-align: left;
   }
   .code.big {
     font-size: 3rem;

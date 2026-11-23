@@ -5,6 +5,7 @@
   import Sheet from "../components/Sheet.svelte";
   import HealthBar from "../components/HealthBar.svelte";
   import Avatar from "../components/Avatar.svelte";
+  import Invite from "../components/Invite.svelte";
   import { avatarUrl } from "../../shared/types";
   import type { NewCharacterInput, PublicCharacter } from "../../shared/types";
 
@@ -212,6 +213,8 @@
     {:else}
       <section class="pad scroll journal">
         <h2>Journal</h2>
+        <h3>Invite friends</h3>
+        <Invite {code} title={v.title} />
         {#if about}<h3>About this campaign</h3><p class="serif">{about}</p>{/if}
         {#if v.scene}<h3>Where you are</h3><p class="serif">{v.scene}</p>{/if}
         {#if v.summary}<h3>The story so far</h3><p class="serif">{v.summary}</p>{/if}

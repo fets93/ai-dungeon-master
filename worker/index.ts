@@ -131,11 +131,36 @@ async function ttsApi(env: Env, ctx: ExecutionContext, parts: string[]): Promise
   return new Response(a, { headers });
 }
 
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+// /join/CODE: a tiny page whose link preview (WhatsApp, Signal, iMessage…) shows the campaign,
+// then forwards the browser to the phone view.
+async function joinPage(env: Env, url: URL, code: string): Promise<Response> {
+  const c = await registry(env).get(code);
+  const target = c ? `/#/play/${code}` : "/";
+  const title = c ? `Join "${c.title}"` : "AI Dungeon Master";
+  const desc = c?.summary ? c.summary.slice(0, 200) : "A role-playing game with an AI dungeon master. Join on your phone.";
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="${esc(title)} · AI Dungeon Master">
+<meta property="og:description" content="${esc(desc)}">
+<meta property="og:url" content="${esc(url.href)}">
+<meta name="description" content="${esc(desc)}">
+<meta http-equiv="refresh" content="0; url=${esc(target)}">
+<style>body{background:#15120f;color:#f0e7d8;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}a{color:#d6a64f}</style>
+</head><body><p>Opening the game… <a href="${esc(target)}">Tap here</a> if nothing happens.</p>
+<script>location.replace(${JSON.stringify(target)})</script></body></html>`;
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
     try {
+      if (parts[0] === "join" && parts[1]) return await joinPage(env, url, parts[1].toUpperCase().slice(0, 4));
       if (parts[0] === "api" && parts[1] === "avatar" && parts[2] && parts[3]) {
         const code = parts[2].toUpperCase();
         if (!(await registry(env).get(code))) return new Response("Not found", { status: 404 });

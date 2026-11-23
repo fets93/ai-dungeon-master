@@ -264,6 +264,8 @@ export const MAX_ITEMS = 6;
 export const BACKSTORY_MAX = 3000; // about 500 words
 export const AVATAR_SIZE = 320; // px, square
 export const AVATAR_MAX_BYTES = 200_000; // data URL length limit, far above a 320px JPEG
+// Invite link: a real path (not #/play/…) so chat apps can show the campaign's title and description.
+export const inviteUrl = (origin: string, code: string) => `${origin}/join/${code}`;
 export const avatarUrl = (code: string, c: { id: string; avatarVersion?: number }) =>
   c.avatarVersion ? `/api/avatar/${code}/${encodeURIComponent(c.id)}?v=${c.avatarVersion}` : null;
 

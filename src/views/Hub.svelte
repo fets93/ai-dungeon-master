@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CampaignSummary, Strictness } from "../../shared/types";
   import { APP_VERSION } from "../../shared/version";
+  import Invite from "../components/Invite.svelte";
 
   let campaigns = $state<CampaignSummary[] | null>(null);
   let error = $state<string | null>(null);
@@ -158,6 +159,7 @@
               <a href="/api/campaigns/{c.code}/export" download><button>Export</button></a>
               <button class="ghost danger" onclick={() => remove(c)}>Delete</button>
             </div>
+            <div class="inv"><Invite code={c.code} title={c.title} compact /></div>
           </article>
         {/each}
       </div>
@@ -233,6 +235,10 @@
   }
   .camp h3 {
     margin: 0;
+  }
+  .inv {
+    margin-top: 0.6rem;
+    max-width: 28rem;
   }
   .sum {
     font-family: var(--serif);

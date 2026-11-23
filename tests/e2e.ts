@@ -79,6 +79,9 @@ async function main() {
   await screen.until(() => !!screen.view.blurb && !screen.view.busy, "story prepared", 8000);
   check(screen.view.title === "The Drowned Lantern" && screen.view.blurb.includes("Saltmere"), "story and blurb written when the main screen opens");
   check(!JSON.stringify(screen.last).includes("cult"), "secret story arc never reaches clients");
+  const joinHtml = await (await fetch(`${BASE}/join/${code}`)).text();
+  check(joinHtml.includes('og:title" content="Join &quot;The Drowned Lantern&quot;') && joinHtml.includes("Saltmere") && joinHtml.includes(`/#/play/${code}`), "invite link page has a campaign preview and forwards to joining");
+  check(!joinHtml.includes("cult"), "invite preview has no spoilers");
   const card = (await (await fetch(`${BASE}/api/campaigns/${code}`)).json()) as any;
   check(card.summary.includes("Saltmere") && !card.summary.includes("cult"), "library card shows the spoiler-free blurb");
 

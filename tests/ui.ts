@@ -58,7 +58,9 @@ async function main() {
 
   // Phone 1: join and create a character
   const anna = await newPage(390, 844, true);
-  await anna.goto(`${BASE}/#/play/${code}`);
+  await anna.goto(`${BASE}/join/${code}`); // the invite link from WhatsApp
+  await anna.waitForFunction((c) => location.hash === `#/play/${c}`, { timeout: 5000 }, code);
+  console.log("PASS  invite link opens the join screen");
   await anna.waitForSelector("#pname");
   await anna.type("#pname", "Anna");
   await shot(anna, "02-phone-join");
@@ -100,6 +102,7 @@ async function main() {
   await sleep(300);
   const lobbyImg = await screen.waitForSelector(".member img.av", { timeout: 5000 }).then(() => true).catch(() => false);
   console.log(lobbyImg ? "PASS  portrait shows on the main screen" : "FAIL  no portrait on the main screen");
+  console.log((await screen.evaluate(() => [...document.querySelectorAll(".qrcard a.wa")].some((a) => (a as HTMLAnchorElement).href.includes("wa.me")))) ? "PASS  WhatsApp invite button in the lobby" : "FAIL  no WhatsApp button");
   await shot(screen, "05-screen-lobby");
 
   // Voice: switch the main screen to ElevenLabs before the story starts
