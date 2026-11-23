@@ -85,7 +85,7 @@
   <h2>New character</h2>
   {#if about}<p class="about small">{about}</p>{/if}
 
-  <label for="cname">Name</label>
+  <label for="cname">Character name</label>
   <input id="cname" bind:value={name} maxlength="24" placeholder="Veyra" autocomplete="off" />
 
   <div class="photo row">

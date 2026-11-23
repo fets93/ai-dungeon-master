@@ -99,9 +99,10 @@
       <p class="muted small">Joining <span class="code">{code}</span></p>
       <h1>{campaignTitle || "AI Dungeon Master"}</h1>
       {#if campaignSummary}<p class="about">{campaignSummary}</p>{/if}
-      <label for="pname">Your name</label>
-      <input id="pname" bind:value={name} maxlength="24" placeholder="Steffen" autocomplete="nickname" />
-      <button class="primary wide" disabled={!name.trim() || !game.connected}>Join</button>
+      <label for="pname">Your name <span class="muted">(you, the player)</span></label>
+      <input id="pname" bind:value={name} maxlength="24" placeholder="e.g. Anna" autocomplete="given-name" />
+      <p class="small muted hint">So the others know who's playing. Your character gets its own name in the next step.</p>
+      <button class="primary wide" disabled={!name.trim() || !game.connected}>Join as player</button>
     </form>
   {:else if !v || !you}
     <div class="pad center"><p class="muted">Connecting…</p></div>
@@ -275,6 +276,9 @@
     gap: 0.75rem;
     margin-bottom: 0.5rem;
     padding: 0.75rem;
+  }
+  .hint {
+    margin: 0.4rem 0 0;
   }
   .pinrow {
     margin: -0.25rem 0 0.75rem;

@@ -64,7 +64,7 @@ async function main() {
   await anna.waitForSelector("#pname");
   await anna.type("#pname", "Anna");
   await shot(anna, "02-phone-join");
-  await clickText(anna, "Join");
+  await clickText(anna, "Join as player");
   await waitText(anna, "Create a new character");
   await shot(anna, "03-phone-pick-role");
   await clickText(anna, "Create a new character");
@@ -92,7 +92,7 @@ async function main() {
   await ben.goto(`${BASE}/#/play/${code}`);
   await ben.waitForSelector("#pname");
   await ben.type("#pname", "Ben");
-  await clickText(ben, "Join");
+  await clickText(ben, "Join as player");
   await waitText(ben, "Veyra");
   await ben.evaluate(() => {
     const card = [...document.querySelectorAll(".pick")].find((c) => c.textContent?.includes("Veyra"));
