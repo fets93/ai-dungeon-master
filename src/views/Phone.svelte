@@ -6,6 +6,7 @@
   import HealthBar from "../components/HealthBar.svelte";
   import Avatar from "../components/Avatar.svelte";
   import Invite from "../components/Invite.svelte";
+  import HostControls from "../components/HostControls.svelte";
   import { avatarUrl } from "../../shared/types";
   import type { NewCharacterInput, PublicCharacter } from "../../shared/types";
 
@@ -30,7 +31,7 @@
   let creating = $state(false);
   let tab = $state<"play" | "character" | "journal">("play");
   let text = $state("");
-  let aloud = $state(true);
+  let channel = $state<"aloud" | "talk" | "whisper">("aloud");
   let pinFor = $state<PublicCharacter | null>(null);
   let pin = $state("");
 
@@ -46,7 +47,7 @@
   const canSend = $derived(!!v && v.started && !v.busy && myPending > 0 && (myTurn || !!you?.isHost));
 
   $effect(() => {
-    if (!myTurn) aloud = false; // off-turn in combat: only table talk
+    if (!myTurn) channel = "talk"; // off-turn in combat: only table talk
   });
 
   function join(e: SubmitEvent) {
@@ -75,7 +76,7 @@
     e?.preventDefault();
     const t = text.trim();
     if (!t) return;
-    game.send({ t: "say", text: t, aloud });
+    game.send({ t: "say", text: t, aloud: channel === "aloud", whisper: channel === "whisper" });
     text = "";
   }
 
@@ -175,9 +176,11 @@
           </div>
         {:else}
           <form class="composer" onsubmit={say}>
+            {#if v.paused}<p class="paused small">⏸ The game is paused. You can still write; sending resumes when the host continues.</p>{/if}
             <div class="row toggle">
-              <button type="button" class:on={aloud} disabled={!myTurn} onclick={() => (aloud = true)}>🗣 Say aloud</button>
-              <button type="button" class:on={!aloud} onclick={() => (aloud = false)}>🤫 Table talk</button>
+              <button type="button" class="aloud" class:on={channel === "aloud"} disabled={!myTurn} onclick={() => (channel = "aloud")}>🗣 Aloud</button>
+              <button type="button" class="talk" class:on={channel === "talk"} onclick={() => (channel = "talk")}>💬 Table talk</button>
+              <button type="button" class="whisper" class:on={channel === "whisper"} disabled={!myTurn} onclick={() => (channel = "whisper")}>🕵 Whisper</button>
             </div>
             <div class="row">
               <textarea
@@ -185,12 +188,13 @@
                 onkeydown={onKey}
                 rows="2"
                 maxlength="600"
-                placeholder={aloud ? `What does ${me?.name} say or do?` : "Only the table hears this, not the NPCs"}
+                placeholder={channel === "aloud" ? `What does ${me?.name} say or do?` : channel === "talk" ? "Only the table hears this, not the NPCs" : "A secret action: only the DM sees this"}
               ></textarea>
               <button class="say" disabled={!text.trim()}>Add</button>
             </div>
-            <button type="button" class="primary wide send" disabled={!canSend} onclick={() => game.send({ t: "send_to_dm" })}>
+            <button type="button" class="primary wide send" disabled={!canSend || v.paused} onclick={() => game.send({ t: "send_to_dm" })}>
               {#if v.busy}<span class="thinking">DM is thinking</span>
+              {:else if v.paused}Paused
               {:else if !myTurn}Waiting for {activeName}
               {:else}Send to DM{myPending ? ` (${myPending})` : ""}{/if}
             </button>
@@ -213,6 +217,7 @@
     {:else}
       <section class="pad scroll journal">
         <h2>Journal</h2>
+        {#if you.isHost}<HostControls {game} {v} compact />{/if}
         <h3>Invite friends</h3>
         <Invite {code} title={v.title} />
         {#if about}<h3>About this campaign</h3><p class="serif">{about}</p>{/if}
@@ -327,10 +332,19 @@
     background: var(--gold-soft);
     color: var(--gold);
   }
-  .toggle button.on:last-child {
+  .toggle button.talk.on {
     border-color: var(--talk);
     background: rgba(143, 169, 201, 0.14);
     color: var(--talk);
+  }
+  .toggle button.whisper.on {
+    border-color: #b48fd6;
+    background: rgba(180, 143, 214, 0.15);
+    color: #cfb3ec;
+  }
+  .paused {
+    margin: 0;
+    color: var(--gold);
   }
   .composer textarea {
     min-height: 48px;

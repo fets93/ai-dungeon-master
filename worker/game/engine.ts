@@ -35,15 +35,16 @@ function log(s: GameState, m: Omit<Message, "id">) {
 }
 
 async function runReferee(s: GameState, llm: Llm, batch: Message[]): Promise<Ruling[]> {
+  const isAction = (m: Message) => m.aloud || !!m.whisper;
   const tableTalk: Ruling[] = batch
     .map((m, i) => ({ m, i }))
-    .filter(({ m }) => !m.aloud)
+    .filter(({ m }) => !isAction(m))
     .map(({ m, i }) => ({ messageIndex: i, character: m.speaker, verdict: "no_action" as const, reason: "table talk" }));
-  if (!batch.some((m) => m.aloud)) return tableTalk;
+  if (!batch.some(isAction)) return tableTalk;
 
   // The referee only sees what was said aloud; table talk is not an action.
-  const aloudOnly = { ...s, pending: batch.filter((m) => m.aloud) };
-  const indexMap = batch.map((m, i) => (m.aloud ? i : -1)).filter((i) => i >= 0);
+  const aloudOnly = { ...s, pending: batch.filter(isAction) };
+  const indexMap = batch.map((m, i) => (isAction(m) ? i : -1)).filter((i) => i >= 0);
   const input = await callTool(
     llm,
     "referee",
@@ -83,7 +84,9 @@ async function runReferee(s: GameState, llm: Llm, batch: Message[]): Promise<Rul
 function describeResolved(batch: Message[], resolved: ResolvedAction[]): string {
   return batch
     .map((m, i) => {
-      const head = `${m.speaker}${m.aloud ? " (said aloud)" : " (table talk, NPCs did not hear this)"}: ${m.text}`;
+      const head = m.whisper
+        ? `${m.speaker} (WHISPERED to the DM, a secret action: only ${m.speaker} knows; others notice only what the outcome makes visible): ${m.text}`
+        : `${m.speaker}${m.aloud ? " (said aloud)" : " (table talk, NPCs did not hear this)"}: ${m.text}`;
       const r = resolved.find((x) => x.ruling.messageIndex === i);
       if (!r || r.result === "no_action") return head;
       const rl = r.ruling;
@@ -118,6 +121,13 @@ async function runDm(s: GameState, llm: Llm, userText: string): Promise<string> 
     if (uses.length === 0 || msg.stop_reason !== "tool_use") break;
     const results: Anthropic.ToolResultBlockParam[] = uses.map((u) => {
       try {
+        if (u.name === "whisper") {
+          const input = u.input as { character?: string; text?: string };
+          const c = s.characters.find((x) => x.name.toLowerCase() === String(input.character ?? "").toLowerCase());
+          if (!c) throw new Error(`Unknown character "${input.character}"`);
+          log(s, { speaker: "DM", text: String(input.text ?? "").slice(0, 1500), aloud: false, kind: "whisper", whisperTo: c.id });
+          return { type: "tool_result", tool_use_id: u.id, content: `Sent privately to ${c.name}.` };
+        }
         const out = applyTool(s, u.name, u.input as Record<string, unknown>);
         if (out.roll) log(s, { speaker: "SYSTEM", text: out.roll, aloud: true, kind: "roll" });
         return { type: "tool_result", tool_use_id: u.id, content: out.text };
@@ -167,8 +177,10 @@ export async function sendToDm(s: GameState, llm: Llm, batch: Message[]) {
 
   for (const m of batch) s.log.push(m);
   for (const r of resolved) {
-    if (r.rollText) log(s, { speaker: "SYSTEM", text: r.rollText, aloud: true, kind: "roll" });
-    else if (r.result === "rejected") log(s, { speaker: "SYSTEM", text: `${r.ruling.character}: ${r.note}`, aloud: true, kind: "rejected" });
+    const src = batch[r.ruling.messageIndex];
+    const whisperTo = src?.whisper ? src.whisperTo : undefined; // secret actions: roll shown only to that player
+    if (r.rollText) log(s, { speaker: "SYSTEM", text: r.rollText, aloud: true, kind: "roll", whisperTo });
+    else if (r.result === "rejected") log(s, { speaker: "SYSTEM", text: `${r.ruling.character}: ${r.note}`, aloud: true, kind: "rejected", whisperTo });
   }
 
   const wasCombat = s.mode === "combat";
@@ -180,10 +192,36 @@ export async function sendToDm(s: GameState, llm: Llm, batch: Message[]) {
   await maybeSummarize(s, llm);
 }
 
+export async function recap(s: GameState, llm: Llm) {
+  const recent = s.log
+    .filter((m) => !m.whisperTo && (m.speaker === "DM" || m.aloud))
+    .slice(-30)
+    .map((m) => `${m.speaker}: ${plainSpeech(m.text, s.npcs)}`)
+    .join("\n");
+  const msg = await llm.call("recap", {
+    model: llm.dmModel,
+    max_tokens: 700,
+    system: [{ type: "text", text: dmSystem(s), cache_control: { type: "ephemeral" } }],
+    messages: [
+      {
+        role: "user",
+        content: `The group is starting a new session. Write a "Previously on…" recap in ${s.config.language}, 80-140 words, spoken style as if narrating to the table: the key events, the open threads and where the party stands now. Only what the whole party knows: no secrets, no whispered actions. Start with the words "Previously on" (translated if needed). Plain prose, no NPC markup, no tools.\n\nSTORY SO FAR: ${s.summary || "(no summary yet)"}\n\nRECENT EVENTS:\n${recent}`,
+      },
+    ],
+  });
+  const text = msg.content
+    .filter((b) => b.type === "text")
+    .map((b) => (b as Anthropic.TextBlock).text)
+    .join("")
+    .trim();
+  if (!text) throw new Error("The DM couldn't write a recap.");
+  log(s, { speaker: "DM", text, aloud: true, kind: "recap" });
+}
+
 async function maybeSummarize(s: GameState, llm: Llm) {
   const keep = 24;
   if (s.log.length - s.summarizedUpTo < keep + 30) return;
-  const chunk = s.log.slice(s.summarizedUpTo, s.log.length - keep);
+  const chunk = s.log.slice(s.summarizedUpTo, s.log.length - keep).filter((m) => !m.whisperTo); // the summary is shown to everyone
   const msg = await llm.call("summary", {
     model: llm.refereeModel,
     max_tokens: 600,

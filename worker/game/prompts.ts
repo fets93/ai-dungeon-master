@@ -46,7 +46,7 @@ Campaign strictness: ${s.config.strictness}.`;
 }
 
 export function refereeContext(s: GameState): string {
-  const msgs = s.pending.map((m, i) => `[${i}] ${m.speaker}: ${m.text}`).join("\n");
+  const msgs = s.pending.map((m, i) => `[${i}] ${m.speaker}${m.whisper ? " (secret action, whispered to the DM)" : ""}: ${m.text}`).join("\n");
   return `CURRENT SCENE: ${s.scene || "(not set)"}
 MODE: ${s.mode}${enemiesLine(s)}
 
@@ -80,6 +80,7 @@ HOW YOU WORK
 - Keep each response to roughly 80-180 words unless a big scene needs more. End by making clear what the players face now. Never decide what player characters say or feel.
 - Do not mention game mechanics in prose (no "you take 4 damage"); the screen shows those. Describe them in fiction.
 - Plain prose only: no markdown headings, no bullet lists.
+- WHISPERS: a player may whisper a secret action to you. Resolve it as ruled, tell that player the private result with the whisper tool, and in the public narration describe only what the others could notice (often nothing). Never reveal a whispered action's details publicly unless it was noticed.
 - NPC DIALOGUE MARKUP: your narration may be read aloud with a different voice per NPC. Wrap the exact words an NPC says aloud as {{npc-id: words}}, using the id from create_npc, for example: The old woman leans closer. {{mother-kessa: Nobody leaves the harbor tonight.}} She taps the ledger. Only spoken words go inside, no quotation marks and no narration; everything outside the braces is read by the narrator. Avoid ellipses and symbols that a speech engine can't pronounce.
 
 Campaign strictness: ${s.config.strictness}.${backstories(s)}`;
@@ -95,7 +96,7 @@ function backstories(s: GameState): string {
 export function dmTurnContext(s: GameState, playersText: string, extra = ""): string {
   const recent = s.log
     .slice(-24)
-    .map((m) => `${m.speaker}${m.aloud ? "" : " (table talk)"}: ${m.text}`)
+    .map((m) => `${m.speaker}${m.kind === "whisper" ? ` (privately to ${s.characters.find((c) => c.id === m.whisperTo)?.name ?? "a player"})` : m.whisper ? " (whispered secret action)" : m.aloud ? "" : " (table talk)"}: ${m.text}`)
     .join("\n");
   const active = activeCombatantId(s);
   const activeName = active ? s.characters.find((c) => c.id === active)?.name : null;

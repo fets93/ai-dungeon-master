@@ -30,6 +30,7 @@ export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
     throw new Error('400 tool_choice: type "tool" and "any" are not supported for this model.');
   // The story writer answers in prose first, to exercise the retry.
   if (role === "story" && p.messages.length === 1) return msg(p.model, [text("Here is a story idea for you…")], "end_turn");
+  if (role === "recap") return msg(p.model, [text("Previously on The Drowned Lantern: the party met Mother Kessa, learned the harbor is closed, and a fight broke out by the door.")], "end_turn");
   if (role === "summary") return msg(p.model, [text("Mock summary: the party has been busy in the harbor.")], "end_turn");
   if (role === "story")
     return msg(p.model, [tool("set_story", { title: "The Drowned Lantern", blurb: "Saltmere is a rain-soaked harbor city where ships vanish on calm nights. You meet in the Drowned Lantern tavern on the night the harbor is closed. Sailors, smugglers and odd folk welcome.", story_arc: "Ships vanish on calm nights in the harbor city of Saltmere. A stolen ledger leads through smugglers and a corrupt harbor master to a drowned temple, where a cult wants to wake something old. The players decide what to do with what sleeps there." })], "tool_use");
@@ -78,6 +79,8 @@ export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
   if (/MODE: combat/.test(t) && actor) calls.push(tool("enemy_attack", { enemy: "Dock Thug", target: actor, attack_bonus: 3, damage: 3 }));
   if (/blow lands/.test(said) && /success/.test(said)) calls.push(tool("apply_damage", { target: "Dock Thug", amount: 3 }));
   if (/flee|surrender|end the fight/i.test(said)) calls.push(tool("end_combat", {}));
+  const whisperer = said.match(/\n(\w[\w' -]*?) \(WHISPERED/)?.[1];
+  if (whisperer) calls.push(tool("whisper", { character: whisperer, text: "Your fingers find a small brass key in the old woman's apron. Nobody noticed." }));
   if (calls.length === 0) calls.push(tool("add_fact", { fact: "Mock: something happened." }));
   return msg(p.model, [text("…"), ...calls], "tool_use");
 }

@@ -28,7 +28,7 @@ import {
 } from "../shared/types";
 import { parseSpeech, plainSpeech } from "../shared/speech";
 import { matchVoice, pickNarrator } from "./voice";
-import { generateStory, opening, sendToDm } from "./game/engine";
+import { generateStory, opening, recap, sendToDm } from "./game/engine";
 import { makeLlm } from "./game/llm";
 import { premadeCharacters } from "./game/premades";
 import { activeCombatantId } from "./game/rules";
@@ -37,11 +37,20 @@ import type { Env } from "./index";
 interface Attachment {
   role: "screen" | "phone";
   playerId?: string;
+  unlocked?: boolean; // main screen entered the host PIN
+}
+
+// State before the last DM turn, for Undo / Retry.
+interface UndoSnapshot {
+  kind: "turn" | "opening" | "recap";
+  state: GameState;
+  batch: GameState["pending"];
 }
 
 export class Campaign extends DurableObject<Env> {
   private s: GameState | null = null;
   private busy = false;
+  private canUndo = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -52,6 +61,9 @@ export class Campaign extends DurableObject<Env> {
         this.s.voiceMode ??= "off";
         this.s.narratorVoiceId ??= null;
         this.s.blurb ??= "";
+        this.s.hostPin ??= null;
+        this.s.paused ??= false;
+        this.canUndo = !!(await ctx.storage.get("undo"));
       }
     });
   }
@@ -86,10 +98,16 @@ export class Campaign extends DurableObject<Env> {
       costUsd: 0,
       voiceMode: "off",
       narratorVoiceId: null,
+      hostPin: null,
+      paused: false,
       ...carry,
     };
     this.s.code = code;
+    this.s.hostPin ??= null;
+    this.s.paused = false;
     this.s.players = [];
+    await this.ctx.storage.delete("undo");
+    this.canUndo = false;
     for (const c of this.s.characters) {
       c.ownerId = null;
       c.present = false;
@@ -195,6 +213,11 @@ export class Campaign extends DurableObject<Env> {
       return player;
     };
     const myCharacter = () => s.characters.find((c) => c.id === player?.characterId && c.ownerId === player?.id);
+    // Host controls: the host's phone, or a main screen (unlocked with the PIN if one is set).
+    const control = this.canControl(att, player);
+    const needControl = () => {
+      if (!control) throw new Error(s.hostPin && att.role === "screen" ? "Enter the host PIN to use this." : "Only the host can do that.");
+    };
 
     switch (msg.t) {
       case "hello": {
@@ -283,7 +306,7 @@ export class Campaign extends DurableObject<Env> {
       }
 
       case "remove_character": {
-        if (att.role !== "screen" && !player?.isHost) throw new Error("Only the main screen or the host can remove characters.");
+        if (!control) throw new Error("Only the main screen or the host can remove characters.");
         const c = s.characters.find((x) => x.id === msg.characterId);
         if (!c) throw new Error("That character doesn't exist.");
         const owner = s.players.find((p) => p.id === c.ownerId);
@@ -320,9 +343,17 @@ export class Campaign extends DurableObject<Env> {
         if (!c) throw new Error("Pick or create a character to speak.");
         const text = String(msg.text ?? "").trim().slice(0, 600);
         if (!text) return;
+        const whisper = !!msg.whisper;
         const active = activeCombatantId(s);
-        if (active && active !== c.id && msg.aloud) throw new Error("It's not your turn. Table talk is still allowed.");
-        s.pending.push({ id: s.nextMsgId++, speaker: c.name, playerId: p.id, text, aloud: !!msg.aloud });
+        if (active && active !== c.id && (msg.aloud || whisper)) throw new Error("It's not your turn. Table talk is still allowed.");
+        s.pending.push({
+          id: s.nextMsgId++,
+          speaker: c.name,
+          playerId: p.id,
+          text,
+          aloud: !!msg.aloud && !whisper,
+          ...(whisper ? { whisper: true, whisperTo: c.id } : {}),
+        });
         await this.save();
         return this.broadcast();
       }
@@ -335,18 +366,19 @@ export class Campaign extends DurableObject<Env> {
       }
 
       case "begin": {
-        if (att.role !== "screen" && !player?.isHost) throw new Error("Only the host or the main screen can start the adventure.");
+        if (!control) throw new Error("Only the host or the main screen can start the adventure.");
         if (s.started) throw new Error("The adventure has already started.");
         if (!s.characters.some((c) => c.ownerId)) throw new Error("At least one character needs to be at the table first.");
         // Everyone at the table is part of the opening scene, even if their phone is locked right now.
         return this.runLlm(async () => {
           for (const c of s.characters) c.present = !!c.ownerId;
+          await this.snapshot("opening", []);
           await opening(s, this.llm());
         }, false);
       }
 
       case "set_voice": {
-        if (att.role !== "screen" && !player?.isHost) throw new Error("Only the main screen or the host can change the voice.");
+        if (!control) throw new Error("Only the main screen or the host can change the voice.");
         if (msg.mode && ["off", "browser", "elevenlabs"].includes(msg.mode)) s.voiceMode = msg.mode as VoiceMode;
         if (msg.narratorVoiceId !== undefined) {
           s.narratorVoiceId = msg.narratorVoiceId || null;
@@ -356,19 +388,97 @@ export class Campaign extends DurableObject<Env> {
         return this.broadcast();
       }
 
+      case "unlock": {
+        if (att.role !== "screen") return;
+        if (!s.hostPin || msg.pin !== s.hostPin) throw new Error("Wrong PIN.");
+        ws.serializeAttachment({ ...att, unlocked: true } satisfies Attachment);
+        return this.broadcast();
+      }
+
+      case "set_host_pin": {
+        needControl();
+        const pin = msg.pin ? String(msg.pin).trim() : "";
+        if (pin && !/^\d{4,6}$/.test(pin)) throw new Error("The host PIN must be 4 to 6 digits.");
+        s.hostPin = pin || null;
+        if (att.role === "screen") ws.serializeAttachment({ ...att, unlocked: true } satisfies Attachment);
+        await this.save();
+        return this.broadcast();
+      }
+
+      case "set_paused": {
+        needControl();
+        s.paused = !!msg.paused;
+        this.event(s.paused ? "The game is paused." : "The game continues.");
+        await this.save();
+        return this.broadcast();
+      }
+
+      case "set_facts": {
+        needControl();
+        s.facts = (Array.isArray(msg.facts) ? msg.facts : [])
+          .map((f) => String(f).trim().slice(0, 300))
+          .filter(Boolean)
+          .slice(0, 200);
+        await this.save();
+        return this.broadcast();
+      }
+
+      case "undo_turn": {
+        needControl();
+        if (this.busy) throw new Error("The DM is still thinking.");
+        const snap = await this.restoreSnapshot();
+        this.event(snap.kind === "opening" ? "The opening was undone." : "The last DM turn was undone.");
+        await this.save();
+        return this.broadcast();
+      }
+
+      case "retry_turn": {
+        needControl();
+        if (this.busy) throw new Error("The DM is still thinking.");
+        const snap = await this.restoreSnapshot();
+        const cur = this.s!; // restoring replaced the state object
+        const later = cur.pending.slice(snap.batch.length); // typed after that turn: keep for the next send
+        return this.runLlm(async () => {
+          if (snap.kind === "opening") {
+            for (const c of cur.characters) c.present = !!c.ownerId;
+            await this.snapshot("opening", []);
+            await opening(cur, this.llm());
+          } else if (snap.kind === "recap") {
+            await this.snapshot("recap", []);
+            await recap(cur, this.llm());
+          } else {
+            cur.pending = later;
+            await this.snapshot("turn", snap.batch);
+            await sendToDm(cur, this.llm(), snap.batch);
+          }
+        }, snap.kind !== "opening");
+      }
+
+      case "recap": {
+        needControl();
+        if (!s.started) throw new Error("The adventure hasn't started yet.");
+        return this.runLlm(async () => {
+          await this.snapshot("recap", []);
+          await recap(s, this.llm());
+        });
+      }
+
       case "send_to_dm": {
         const p = needPlayer();
         if (!s.started) throw new Error("The adventure hasn't started yet.");
         if (!s.pending.length) throw new Error("Nothing to send yet.");
+        if (s.paused) throw new Error("The game is paused. The host can resume it.");
         const active = activeCombatantId(s);
         if (active && !p.isHost && myCharacter()?.id !== active) throw new Error("In combat, the active player ends their turn.");
         return this.runLlm(async () => {
           const batch = s.pending;
           s.pending = [];
+          await this.snapshot("turn", batch);
           try {
             await sendToDm(s, this.llm(), batch);
           } catch (e) {
             s.pending = [...batch, ...s.pending]; // put messages back so nothing is lost
+            await this.dropSnapshot();
             throw e;
           }
         });
@@ -396,6 +506,50 @@ export class Campaign extends DurableObject<Env> {
       this.broadcast();
       await this.updateRegistry();
     }
+  }
+
+  private canControl(att: Attachment, player?: Player): boolean {
+    if (att.role === "screen") return !this.s!.hostPin || !!att.unlocked;
+    return !!player?.isHost;
+  }
+
+  private async snapshot(kind: UndoSnapshot["kind"], batch: GameState["pending"]) {
+    const snap: UndoSnapshot = { kind, state: structuredClone(this.s!), batch: structuredClone(batch) };
+    await this.ctx.storage.put("undo", snap);
+    this.canUndo = true;
+  }
+
+  private async dropSnapshot() {
+    await this.ctx.storage.delete("undo");
+    this.canUndo = false;
+  }
+
+  // Puts the game back to before the last DM turn. Players, settings, the API cost and
+  // anything joined or typed since then are kept; the turn's messages go back to "not sent".
+  private async restoreSnapshot(): Promise<UndoSnapshot> {
+    const snap = await this.ctx.storage.get<UndoSnapshot>("undo");
+    if (!snap) throw new Error("There's no DM turn to undo.");
+    const now = this.s!;
+    const old = structuredClone(snap.state);
+    const owners = new Map(now.characters.map((c) => [c.id, c]));
+    old.characters = [
+      ...old.characters.filter((c) => owners.has(c.id)).map((c) => ({ ...c, ownerId: owners.get(c.id)!.ownerId, avatarVersion: owners.get(c.id)!.avatarVersion, backstory: owners.get(c.id)!.backstory })),
+      ...now.characters.filter((c) => !old.characters.some((o) => o.id === c.id)),
+    ];
+    this.s = {
+      ...old,
+      players: now.players,
+      voiceMode: now.voiceMode,
+      narratorVoiceId: now.narratorVoiceId,
+      hostPin: now.hostPin,
+      paused: now.paused,
+      costUsd: now.costUsd,
+      nextMsgId: now.nextMsgId,
+      config: now.config,
+      pending: [...snap.batch, ...now.pending],
+    };
+    await this.dropSnapshot();
+    return snap;
   }
 
   private event(text: string, kind: "join" | "event" = "event") {
@@ -533,14 +687,19 @@ export class Campaign extends DurableObject<Env> {
         avatarVersion: c.avatarVersion ?? 0,
       })),
       spectators: s.players.filter((p) => p.spectator && online.has(p.id)).map((p) => p.name),
-      log: s.log.slice(-120),
-      pending: s.pending,
+      log: s.log.filter((m) => !m.whisperTo).slice(-120),
+      pending: s.pending.filter((m) => !m.whisperTo),
       facts: s.facts,
       npcs: s.npcs.map((n) => ({ id: n.id, name: n.name, attitude: n.attitude, gender: n.voice?.gender ?? "neutral", age: n.voice?.age ?? "middle_aged" })),
       summary: s.summary,
       costUsd: Math.round(s.costUsd * 10000) / 10000,
       voiceMode: s.voiceMode,
       narratorVoiceId: s.narratorVoiceId,
+      paused: s.paused,
+      lastPlayed: s.lastPlayed,
+      hasHostPin: !!s.hostPin,
+      canUndo: this.canUndo,
+      canControl: false,
     };
   }
 
@@ -554,10 +713,21 @@ export class Campaign extends DurableObject<Env> {
   private broadcast() {
     if (!this.s) return;
     const view = this.publicView();
+    const s = this.s;
     for (const ws of this.sockets()) {
       const a = (ws.deserializeAttachment() ?? { role: "phone" }) as Attachment;
       if (a.role === "phone" && !a.playerId) continue; // not joined yet: gets state after join
-      this.send(ws, { t: "state", view, you: this.youView(a.playerId) });
+      const player = s.players.find((p) => p.id === a.playerId);
+      const charId = player?.characterId;
+      // Whispers and their results go only to the player whose character they belong to.
+      const mine = charId && s.log.some((m) => m.whisperTo === charId) || s.pending.some((m) => m.whisperTo && m.whisperTo === charId);
+      const personal = mine
+        ? {
+            log: s.log.filter((m) => !m.whisperTo || m.whisperTo === charId).slice(-120),
+            pending: s.pending.filter((m) => !m.whisperTo || m.whisperTo === charId),
+          }
+        : {};
+      this.send(ws, { t: "state", view: { ...view, ...personal, canControl: this.canControl(a, player) }, you: this.youView(a.playerId) });
     }
   }
 
@@ -578,7 +748,7 @@ export class Campaign extends DurableObject<Env> {
       title: s.config.title,
       started: s.started,
       party: s.characters.filter((c) => c.ownerId || (!c.readyMade && s.started)).map((c) => c.name),
-      summary: s.summary || plainSpeech([...s.log].reverse().find((m) => m.speaker === "DM")?.text ?? (s.blurb || s.config.prompt), s.npcs).slice(0, 220),
+      summary: s.summary || plainSpeech([...s.log].reverse().find((m) => m.speaker === "DM" && !m.whisperTo)?.text ?? (s.blurb || s.config.prompt), s.npcs).slice(0, 220),
       lastPlayed: s.lastPlayed,
       createdAt: s.createdAt,
     };

@@ -200,6 +200,70 @@ async function main() {
   check(!a.you?.character?.inventory.some((i) => i.name === "Healing potion"), "both potions consumed");
   check(screen.view.log.filter((m) => m.kind === "rejected").length === 2, "third potion rejected");
 
+  // Whispers: secret action, private roll and private DM answer
+  b.send({ t: "say", text: "I sneak a hand into her apron", aloud: false, whisper: true });
+  a.send({ t: "say", text: "Lovely weather tonight", aloud: true });
+  await screen.until(() => screen.view.pending.length === 1, "pending public");
+  check(screen.view.pending.length === 1 && b.view.pending.length === 2, "a whisper is pending only on the whisperer's phone");
+  const beforeWhisper = screen.view.log.length;
+  a.send({ t: "send_to_dm" });
+  await b.until(() => b.view.log.some((m) => m.kind === "whisper") && !b.view.busy, "whisper answer", 8000);
+  const pub = JSON.stringify(screen.last) + JSON.stringify(a.last);
+  check(b.view.log.some((m) => m.kind === "whisper" && m.text.includes("brass key")), "whisperer gets the DM's private answer");
+  check(b.view.log.some((m) => m.kind === "roll" && m.text.startsWith("Veyra rolls agility")), "whisperer sees their secret roll");
+  check(!pub.includes("apron") && !pub.includes("brass key") && !pub.includes("Veyra rolls agility"), "main screen and other players see nothing of the whisper");
+
+  // Undo and retry the last DM turn
+  b.send({ t: "undo_turn" });
+  await b.until(() => b.errors.some((e) => e.includes("host")), "guest undo error");
+  check(b.errors.some((e) => e.includes("host")), "only the host can undo");
+  check(screen.view.canUndo, "undo is offered after a DM turn");
+  screen.send({ t: "undo_turn" });
+  await screen.until(() => screen.view.log.length < beforeWhisper + 2 && screen.view.pending.length === 1, "undone");
+  await b.until(() => b.view.pending.length === 2, "b pending restored");
+  check(screen.view.log.length === beforeWhisper + 1 && screen.view.pending.length === 1, "undo reverts the turn and puts its messages back");
+  check(b.view.pending.some((m) => m.whisper) && !b.view.log.some((m) => m.kind === "whisper"), "undo also reverts the private answer");
+  check(!screen.view.canUndo, "only one level of undo");
+  a.send({ t: "send_to_dm" });
+  await screen.until(() => screen.view.canUndo && !screen.view.busy && screen.view.pending.length === 0, "resent", 8000);
+  const dmCount = () => screen.view.log.filter((m) => m.speaker === "DM").length;
+  const lenBefore = screen.view.log.length;
+  const dmBefore = dmCount();
+  a.send({ t: "retry_turn" }); // a is the host
+  await screen.until(() => !screen.view.busy && screen.view.canUndo, "retried", 8000);
+  check(screen.view.pending.length === 0 && dmCount() === dmBefore && screen.view.log.length === lenBefore, "retry replaces the last turn with a fresh one");
+
+  // Pause, facts, recap
+  screen.send({ t: "set_paused", paused: true });
+  await screen.until(() => screen.view.paused, "paused");
+  a.send({ t: "say", text: "Hello?", aloud: true });
+  a.send({ t: "send_to_dm" });
+  await a.until(() => a.errors.some((e) => e.includes("paused")), "paused error");
+  check(a.errors.some((e) => e.includes("paused")), "Send to DM is blocked while paused");
+  screen.send({ t: "set_paused", paused: false });
+  a.send({ t: "unsay", id: a.view.pending.find((m) => m.text === "Hello?")!.id });
+  screen.send({ t: "set_facts", facts: ["The tavern has no back door."] });
+  await screen.until(() => screen.view.facts.length === 1, "facts");
+  check(screen.view.facts[0] === "The tavern has no back door.", "host can edit the facts");
+  screen.send({ t: "recap" });
+  await screen.until(() => screen.view.log.at(-1)?.kind === "recap" && !screen.view.busy, "recap", 8000);
+  check(screen.view.log.at(-1)?.text.startsWith("Previously on"), "recap is narrated by the DM");
+
+  // Host PIN
+  a.send({ t: "set_host_pin", pin: "4321" });
+  await screen.until(() => screen.view.hasHostPin && !screen.view.canControl, "pin set");
+  check(!screen.view.canControl, "with a host PIN the main screen is locked");
+  screen.send({ t: "set_paused", paused: true });
+  await screen.until(() => screen.errors.some((e) => e.includes("PIN")), "locked screen error");
+  check(screen.errors.some((e) => e.includes("PIN")) && !screen.view.paused, "locked main screen can't use host controls");
+  screen.send({ t: "unlock", pin: "0000" });
+  await screen.until(() => screen.errors.some((e) => e.includes("Wrong PIN")), "wrong pin");
+  screen.send({ t: "unlock", pin: "4321" });
+  await screen.until(() => screen.view.canControl, "unlocked");
+  check(screen.view.canControl, "the right PIN unlocks the main screen");
+  a.send({ t: "set_host_pin", pin: null });
+  await screen.until(() => !screen.view.hasHostPin, "pin off");
+
   // Combat: turn order is enforced
   a.send({ t: "say", text: "I attack the thug", aloud: true });
   a.send({ t: "send_to_dm" });

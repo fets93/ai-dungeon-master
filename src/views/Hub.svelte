@@ -14,6 +14,7 @@
   let language = $state("English");
   let tone = $state("adventurous with some humor");
   let strictness = $state<Strictness>("standard");
+  let hostPin = $state("");
 
   async function load() {
     try {
@@ -36,7 +37,7 @@
     e.preventDefault();
     creating = true;
     try {
-      const { code } = await post("/api/campaigns", { title, prompt, language, tone, strictness });
+      const { code } = await post("/api/campaigns", { title, prompt, language, tone, strictness, hostPin });
       location.hash = `#/screen/${code}`;
     } catch (err) {
       error = (err as Error).message;
@@ -133,6 +134,8 @@
           {/each}
         </div>
         <p class="small muted">How hard the referee rules: casual is forgiving, hardcore punishes reckless ideas.</p>
+        <label for="hpin">Host PIN (optional, 4-6 digits)</label>
+        <input id="hpin" bind:value={hostPin} inputmode="numeric" maxlength="6" placeholder="Locks the main screen's controls" />
         <button class="primary full" disabled={creating}>{creating ? "Creating…" : "Create and open main screen"}</button>
       </form>
     {/if}

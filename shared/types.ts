@@ -73,7 +73,9 @@ export interface Message {
   playerId?: string;
   text: string;
   aloud: boolean;
-  kind?: "roll" | "rejected" | "event" | "join";
+  kind?: "roll" | "rejected" | "event" | "join" | "recap" | "whisper";
+  whisper?: boolean; // a player's secret action, only the DM and that player see it
+  whisperTo?: string; // character id: message visible only to that character's player
 }
 
 export interface Player {
@@ -119,6 +121,8 @@ export interface GameState {
   costUsd: number;
   voiceMode: VoiceMode;
   narratorVoiceId: string | null;
+  hostPin: string | null;
+  paused: boolean;
 }
 
 // Referee output for one player message.
@@ -184,6 +188,11 @@ export interface PublicView {
   costUsd: number;
   voiceMode: VoiceMode;
   narratorVoiceId: string | null;
+  paused: boolean;
+  lastPlayed: number;
+  hasHostPin: boolean;
+  canUndo: boolean;
+  canControl: boolean; // this connection may use host controls
 }
 
 export interface YouView {
@@ -216,7 +225,14 @@ export type ClientMsg =
   | { t: "update_backstory"; text: string }
   | { t: "set_avatar"; dataUrl: string | null }
   | { t: "remove_character"; characterId: string; deleteIt: boolean }
-  | { t: "say"; text: string; aloud: boolean }
+  | { t: "say"; text: string; aloud: boolean; whisper?: boolean }
+  | { t: "unlock"; pin: string }
+  | { t: "set_host_pin"; pin: string | null }
+  | { t: "undo_turn" }
+  | { t: "retry_turn" }
+  | { t: "set_paused"; paused: boolean }
+  | { t: "set_facts"; facts: string[] }
+  | { t: "recap" }
   | { t: "unsay"; id: number }
   | { t: "send_to_dm" }
   | { t: "set_voice"; mode?: VoiceMode; narratorVoiceId?: string | null }

@@ -119,10 +119,10 @@ async function main() {
   // Talk: aloud + table talk, then Send to DM
   await anna.type("textarea", "Who stole your ledger, Mother Kessa?");
   await clickText(anna, "Add");
-  await clickText(ben, "🤫 Table talk");
+  await clickText(ben, "💬 Table talk");
   await ben.type("textarea", "don't mention the map");
   await clickText(ben, "Add");
-  await clickText(ben, "🗣 Say aloud");
+  await clickText(ben, "🗣 Aloud");
   await ben.type("textarea", "I persuade her to tell us what was in it");
   await clickText(ben, "Add");
   await sleep(300);
@@ -136,6 +136,18 @@ async function main() {
   console.log((await screen.evaluate(() => !!document.querySelector(".dm .line"))) ? "PASS  NPC dialogue rendered as a quoted line" : "FAIL  NPC dialogue not rendered");
   await shot(screen, "08-screen-after-turn");
   await shot(ben, "09-phone-after-turn");
+
+  // Whisper from Ben's phone
+  await clickText(ben, "🕵 Whisper");
+  await ben.type("textarea", "I sneak a hand into her apron");
+  await clickText(ben, "Add");
+  await clickText(ben, "Send to DM");
+  await waitText(ben, "brass key", 10000);
+  await sleep(500);
+  const leaked = await screen.evaluate(() => document.body.innerText.includes("apron"));
+  console.log(leaked ? "FAIL  whisper visible on the main screen" : "PASS  whisper stays off the main screen");
+  await shot(ben, "16-phone-whisper");
+  await shot(screen, "17-screen-host");
 
   // Combat
   await anna.type("textarea", "I attack the thug by the door");

@@ -89,6 +89,11 @@ export const DM_TOOLS: Tool[] = [
     },
   },
   { name: "end_combat", description: "End combat, back to narration.", input_schema: { type: "object", properties: {} } },
+  {
+    name: "whisper",
+    description: "Send a private message to one player (the result of their whispered secret action, or something only their character notices). Only that player sees it.",
+    input_schema: { type: "object", properties: { character: str("Character name"), text: str("What only they learn, 1-4 sentences") }, required: ["character", "text"] },
+  },
   { name: "rest", description: "The party takes a long rest: abilities restored, half health back.", input_schema: { type: "object", properties: {} } },
   {
     name: "request_roll",

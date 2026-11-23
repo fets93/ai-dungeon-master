@@ -6,6 +6,7 @@
   import HealthBar from "../components/HealthBar.svelte";
   import Avatar from "../components/Avatar.svelte";
   import Invite from "../components/Invite.svelte";
+  import HostControls from "../components/HostControls.svelte";
   import { avatarUrl } from "../../shared/types";
   import { Narrator } from "../lib/voice.svelte";
   import type { VoiceMode, VoicesResponse } from "../../shared/types";
@@ -51,6 +52,13 @@
     lastSeen = Math.max(lastSeen, maxId);
   });
 
+  // Suggest a recap when a running campaign is opened after a break.
+  let recapDismissed = $state(false);
+  const openedAt = Date.now();
+  const suggestRecap = $derived(
+    !!v && v.started && v.canControl && !recapDismissed && openedAt - v.lastPlayed > 3 * 3600_000 && !v.log.slice(-3).some((m) => m.kind === "recap"),
+  );
+
   function removeChar(c: { id: string; name: string; readyMade: boolean }, deleteIt: boolean) {
     const q = deleteIt
       ? `Delete ${c.name} for good? Their sheet and picture are removed.`
@@ -80,17 +88,17 @@
     {#if narrator.speakingId !== null}<button class="ghost stop" onclick={() => narrator.stop()}>⏹ Stop</button>{/if}
   </div>
   <div class="row seg">
-    <button class:on={v.voiceMode === "off"} onclick={() => setMode("off")}>Off</button>
-    <button class:on={v.voiceMode === "browser"} onclick={() => setMode("browser")}>Browser</button>
+    <button class:on={v.voiceMode === "off"} disabled={!v.canControl} onclick={() => setMode("off")}>Off</button>
+    <button class:on={v.voiceMode === "browser"} disabled={!v.canControl} onclick={() => setMode("browser")}>Browser</button>
     <button
       class:on={v.voiceMode === "elevenlabs"}
-      disabled={!voices?.configured}
+      disabled={!voices?.configured || !v.canControl}
       title={voices?.configured ? "" : "Add ELEVENLABS_API_KEY on Cloudflare to enable"}
       onclick={() => setMode("elevenlabs")}>ElevenLabs</button>
   </div>
   {#if v.voiceMode === "elevenlabs" && voices?.voices.length}
     <label for="narrator">Narrator</label>
-    <select id="narrator" value={v.narratorVoiceId ?? ""} onchange={(e) => game.send({ t: "set_voice", narratorVoiceId: e.currentTarget.value || null })}>
+    <select id="narrator" disabled={!v.canControl} value={v.narratorVoiceId ?? ""} onchange={(e) => game.send({ t: "set_voice", narratorVoiceId: e.currentTarget.value || null })}>
       <option value="">Automatic</option>
       {#each voices.voices as vo}<option value={vo.id}>{vo.name}{vo.gender ? ` · ${vo.gender}` : ""}{vo.accent ? `, ${vo.accent}` : ""}</option>{/each}
     </select>
@@ -149,19 +157,22 @@
               <b>{c.name}</b> <span class="muted small">· {c.playerName}{c.online ? "" : " (offline)"}</span>
               <div class="small muted">{c.concept}</div>
             </div>
-            <div class="rm">
+            <div class="rm" hidden={!v.canControl}>
               <button class="ghost small" onclick={() => removeChar(c, false)}>Remove</button>
               {#if !c.readyMade}<button class="ghost small danger" onclick={() => removeChar(c, true)}>Delete</button>{/if}
             </div>
           </div>
         {/each}
         {#if v.spectators.length}<p class="small muted">Watching: {v.spectators.join(", ")}</p>{/if}
-        <button class="primary begin" disabled={v.busy || party.length === 0} onclick={() => game.send({ t: "begin" })}>
+        <button class="primary begin" disabled={v.busy || party.length === 0 || !v.canControl} onclick={() => game.send({ t: "begin" })}>
           {#if v.busy}<span class="thinking">The DM is preparing the story</span>{:else}Begin the adventure{/if}
         </button>
         <p class="small muted">Offline players are included and can rejoin any time. The host's phone can start it too, and late players can still join after the start.</p>
       </div>
-      {@render voicePanel(v)}
+      <div class="lobbyside">
+        {@render voicePanel(v)}
+        <HostControls {game} {v} compact />
+      </div>
     </div>
   </main>
 {:else}
@@ -172,8 +183,16 @@
       <header class="row">
         <a class="back small" href="#/">←</a>
         <h1 class="grow">{v.title}</h1>
+        {#if v.paused}<span class="chip bad">Paused</span>{/if}
         <span class="chip gold">{modeLabel}</span>
       </header>
+      {#if suggestRecap}
+        <div class="card recapbar row">
+          <span class="grow">Welcome back! Start the session with a "Previously on…" recap?</span>
+          <button class="primary" onclick={() => { recapDismissed = true; game.send({ t: "recap" }); }}>Recap</button>
+          <button class="ghost" onclick={() => (recapDismissed = true)}>Skip</button>
+        </div>
+      {/if}
       {#if v.scene}<p class="scene muted">{v.scene}</p>{/if}
       <Feed log={v.log} pending={v.pending} busy={v.busy} big npcs={v.npcs} {avatarFor} speakingId={narrator.speakingId} onReplay={(m) => narrator.replay(m, v.npcs)} />
     </section>
@@ -190,6 +209,7 @@
       <a class="selfjoin small" href="#/play/{code}">Play on this device →</a>
 
       {@render voicePanel(v)}
+      <HostControls {game} {v} compact />
 
       {#if v.activeNpc && v.mode === "conversation"}
         <div class="card npc">
@@ -225,7 +245,7 @@
               <span class="dot" class:on={c.online}></span>
               <b class="grow">{c.name}</b>
               <span class="small muted">{c.playerName}</span>
-              <button class="ghost tiny" title="Take {c.name} off the table" aria-label="Take {c.name} off the table" onclick={() => removeChar(c, false)}>×</button>
+              <button class="ghost tiny" hidden={!v.canControl} title="Take {c.name} off the table" aria-label="Take {c.name} off the table" onclick={() => removeChar(c, false)}>×</button>
             </div>
             <HealthBar health={c.health} max={c.maxHealth} />
             {#if c.conditions.length}
@@ -316,6 +336,15 @@
     padding: 0.6rem 0;
     border-bottom: 1px solid var(--line);
     font-size: 1.15rem;
+  }
+  .lobbyside {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .recapbar {
+    margin: 0.5rem 0 0.75rem;
+    border-color: var(--gold);
   }
   .rm {
     display: flex;

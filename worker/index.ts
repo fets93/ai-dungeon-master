@@ -50,9 +50,11 @@ async function api(request: Request, env: Env, path: string[]): Promise<Response
   // /api/campaigns
   if (path.length === 1 && method === "GET") return json(await registry(env).list());
   if (path.length === 1 && method === "POST") {
-    const config = readConfig(await request.json().catch(() => ({})));
+    const body = (await request.json().catch(() => ({}))) as any;
+    const config = readConfig(body);
+    const hostPin = /^\d{4,6}$/.test(String(body?.hostPin ?? "")) ? String(body.hostPin) : null;
     const code = await newCode(env);
-    const summary = await campaign(env, code).init(code, config);
+    const summary = await campaign(env, code).init(code, config, { hostPin });
     await registry(env).upsert(summary);
     return json({ code }, 201);
   }
