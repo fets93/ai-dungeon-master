@@ -133,6 +133,8 @@
         <p>Scan to join, or open <b>{location.host}</b> and enter</p>
         <div class="code big">{v.code}</div>
         <div class="invitebox"><Invite {code} title={v.title} /></div>
+        <a class="selfjoin" href="#/play/{code}">Play on this device instead →</a>
+        <p class="small muted">Send friends the invite link, not this page: whoever has this page can start the game and remove characters.</p>
       </div>
       <div class="card">
         <h2>At the table</h2>
@@ -185,6 +187,7 @@
         </div>
       </div>
       <Invite {code} title={v.title} compact />
+      <a class="selfjoin small" href="#/play/{code}">Play on this device →</a>
 
       {@render voicePanel(v)}
 
@@ -292,6 +295,11 @@
     width: 100%;
     max-width: 320px;
     border-radius: 12px;
+  }
+  .selfjoin {
+    display: inline-block;
+    margin-top: 0.9rem;
+    color: var(--gold);
   }
   .invitebox {
     margin-top: 1rem;
