@@ -4,6 +4,8 @@
   import CharacterForm from "../components/CharacterForm.svelte";
   import Sheet from "../components/Sheet.svelte";
   import HealthBar from "../components/HealthBar.svelte";
+  import Avatar from "../components/Avatar.svelte";
+  import { avatarUrl } from "../../shared/types";
   import type { NewCharacterInput, PublicCharacter } from "../../shared/types";
 
   let { code }: { code: string } = $props();
@@ -108,6 +110,7 @@
         <h3>Or take an existing character</h3>
         {#each claimable as c (c.id)}
           <div class="card pick">
+            <Avatar src={avatarUrl(code, c)} name={c.name} size={44} />
             <div class="grow">
               <b>{c.name}</b>
               {#if c.readyMade}<span class="chip">ready-made</span>{/if}
@@ -130,6 +133,7 @@
   {:else}
     <!-- Playing (or spectating) -->
     <header class="top">
+      {#if me}<Avatar src={avatarUrl(code, me)} name={me.name} size={36} />{/if}
       <div class="grow">
         <div class="title">{v.title}</div>
         <div class="small muted">
@@ -143,7 +147,7 @@
 
     {#if tab === "play"}
       <section class="play">
-        <Feed log={v.log} pending={v.pending} busy={v.busy} npcs={v.npcs} myPlayerId={you.playerId} onUnsay={(id) => game.send({ t: "unsay", id })} />
+        <Feed log={v.log} pending={v.pending} busy={v.busy} npcs={v.npcs} avatarFor={(s) => { const c = v.characters.find((x) => x.name === s); return c ? avatarUrl(code, c) : null; }} myPlayerId={you.playerId} onUnsay={(id) => game.send({ t: "unsay", id })} />
 
         {#if !v.started}
           <div class="pad notice">
@@ -188,7 +192,7 @@
     {:else if tab === "character"}
       <section class="pad scroll">
         {#if me}
-          <Sheet c={me} onSaveBackstory={(text) => game.send({ t: "update_backstory", text })} />
+          <Sheet c={me} {code} onSaveBackstory={(text) => game.send({ t: "update_backstory", text })} onChangeAvatar={(dataUrl) => game.send({ t: "set_avatar", dataUrl })} />
           <div class="row wrap actions">
             <button onclick={() => confirm("Let go of this character? You can pick it again later.") && game.send({ t: "leave_character" })}>Switch character</button>
             <button class="ghost" onclick={() => game.send({ t: "spectate" })}>Just watch</button>
@@ -209,7 +213,7 @@
         {#each v.facts as f}<p class="fact">{f}</p>{:else}<p class="muted small">Nothing yet.</p>{/each}
         <h3>Party</h3>
         {#each v.characters.filter((c) => c.playerName) as c}
-          <div class="row partyrow"><span class="dot" class:on={c.online}></span><span class="grow">{c.name}</span><span class="small muted">{c.health}/{c.maxHealth}</span></div>
+          <div class="row partyrow"><Avatar src={avatarUrl(code, c)} name={c.name} size={28} /><span class="dot" class:on={c.online}></span><span class="grow">{c.name}</span><span class="small muted">{c.health}/{c.maxHealth}</span></div>
         {/each}
       </section>
     {/if}

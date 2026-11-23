@@ -15,6 +15,9 @@
     type Stat,
   } from "../../shared/types";
 
+  import Avatar from "./Avatar.svelte";
+  import { resizeToAvatar } from "../lib/avatar";
+
   let { onSubmit, onCancel }: { onSubmit: (c: NewCharacterInput) => void; onCancel: () => void } = $props();
 
   const STAT_HELP: Record<Stat, string> = {
@@ -28,6 +31,21 @@
   };
 
   let name = $state("");
+  let avatar = $state<string | null>(null);
+  let avatarError = $state<string | null>(null);
+
+  async function pickPhoto(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    try {
+      avatarError = null;
+      avatar = await resizeToAvatar(file);
+    } catch (err) {
+      avatarError = (err as Error).message;
+    }
+  }
   let concept = $state("");
   let backstory = $state("");
   let pin = $state("");
@@ -58,6 +76,7 @@
       abilities: abilities.filter((a) => a.name.trim() && a.description.trim()),
       items: items.map((i) => i.trim()).filter(Boolean),
       pin: pin.trim(),
+      avatar,
     });
   }
 </script>
@@ -67,6 +86,19 @@
 
   <label for="cname">Name</label>
   <input id="cname" bind:value={name} maxlength="24" placeholder="Veyra" autocomplete="off" />
+
+  <div class="photo row">
+    <Avatar src={avatar} name={name || "?"} size={72} />
+    <div class="grow">
+      <label class="pick">
+        <input type="file" accept="image/*" onchange={pickPhoto} hidden />
+        <span>{avatar ? "Change picture" : "Add a picture"}</span>
+      </label>
+      {#if avatar}<button type="button" class="ghost small" onclick={() => (avatar = null)}>Remove</button>{/if}
+      <p class="small muted">Optional. Your photo, a drawing, anything; it's cropped to a circle.</p>
+      {#if avatarError}<p class="small bad">{avatarError}</p>{/if}
+    </div>
+  </div>
 
   <label for="concept">Concept (your own class)</label>
   <input id="concept" bind:value={concept} maxlength="80" placeholder="Storm-touched sailor, survivor of a lost ship" />
@@ -192,6 +224,32 @@
   }
   .item {
     margin-bottom: 0.35rem;
+  }
+  .photo {
+    margin-top: 0.75rem;
+    align-items: flex-start;
+    gap: 0.9rem;
+  }
+  .photo p {
+    margin: 0.3rem 0 0;
+  }
+  .pick {
+    display: inline-block;
+    margin: 0;
+  }
+  .pick span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0 0.9rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--ink);
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  .bad {
+    color: var(--bad);
   }
   .count {
     text-align: right;

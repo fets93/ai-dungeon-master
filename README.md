@@ -8,6 +8,7 @@ A tabletop role-playing game for friends with an AI game master. One shared main
 
 - **Campaign library** on the hub: new campaign from your story idea (or let the AI invent one), continue, restart with the same premise, export / import as JSON, delete. Narration language, tone and strictness per campaign.
 - **Join by QR code** or 4-letter code. No accounts: each phone gets a device token and rejoins automatically after a screen lock or reload.
+- **Portraits**: optional picture per character from the phone's camera or gallery, shrunk on the phone to a small square; shown on the main screen, in the chat and on the sheet, changeable later. Included in export/import.
 - **Characters**: invent your own concept and abilities (with uses per rest), stats (strength, agility, intelligence, wisdom, charm, stamina, resist) on a point budget, starting items, optional PIN. Or take one of three ready-made characters. Spectators can watch.
 - **Phone**: Play (story, said aloud / table talk, Send to DM), Character (full sheet, private to you), Journal (scene, story so far, NPCs, facts).
 - **Main screen**: story in large type, pending messages, party health, active NPC, combat turn order and enemies, dice results, API cost.

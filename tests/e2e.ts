@@ -84,10 +84,24 @@ async function main() {
   await a.until(() => !!a.you && !!a.token, "anna joined");
   check(a.you?.isHost, "first player is host");
 
-  a.send({ t: "create_character", character: char("Thorin", { pin: "1234" }) });
+  const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  a.send({ t: "create_character", character: char("Thorin", { pin: "1234", avatar: PNG }) });
   await a.until(() => !!a.you?.character, "anna character");
   check(a.you?.character?.name === "Thorin" && a.you.character.maxHealth === 16, "character created with health from stamina");
   check(a.you?.character?.inventory.find((i) => i.name === "Healing potion")?.qty === 2, "item quantity parsed from '2x'");
+
+  const thorinPub = () => screen.view.characters.find((x) => x.name === "Thorin")!;
+  await screen.until(() => !!screen.view.characters.find((x) => x.name === "Thorin"), "thorin on screen");
+  check(thorinPub().avatarVersion === 1, "portrait stored with the new character");
+  const av = await fetch(`${BASE}/api/avatar/${code}/${thorinPub().id}?v=1`);
+  check(av.ok && av.headers.get("content-type") === "image/png" && (await av.arrayBuffer()).byteLength === 70, "portrait served as an image");
+  check(!JSON.stringify(screen.last).includes("iVBORw0K"), "portrait is not inside the game updates");
+  a.send({ t: "set_avatar", dataUrl: "data:text/html;base64,PHNjcmlwdD4=" });
+  await a.until(() => a.errors.length > 0, "bad avatar");
+  check(a.errors.at(-1)?.includes("format"), "non-image upload rejected");
+  a.send({ t: "set_avatar", dataUrl: PNG });
+  await screen.until(() => thorinPub().avatarVersion === 2, "avatar v2");
+  check(thorinPub().avatarVersion === 2, "changing the portrait bumps its version");
 
   const b = new Client("ben");
   await b.connect(code);
@@ -242,6 +256,9 @@ async function main() {
   const imp = await fetch(`${BASE}/api/campaigns/import`, { method: "POST", body: JSON.stringify(exp) });
   const { code: code3 } = (await imp.json()) as { code: string };
   check(imp.status === 201, `import -> ${code3}`);
+  check(Object.keys(exp.avatars ?? {}).length === 1, "export includes portraits");
+  const thorinId = exp.characters.find((c: any) => c.name === "Thorin").id;
+  check((await fetch(`${BASE}/api/avatar/${code3}/${thorinId}?v=1`)).ok, "import restores portraits");
   const lib = (await (await fetch(`${BASE}/api/campaigns`)).json()) as any[];
   check(lib.find((x) => x.code === code)?.party.includes("Thorin"), "library card shows the party");
   check(screen.view.costUsd > 0, `cost tracked: $${screen.view.costUsd}`);

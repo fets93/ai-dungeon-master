@@ -4,6 +4,8 @@
   import { GameConnection } from "../lib/game.svelte";
   import Feed from "../components/Feed.svelte";
   import HealthBar from "../components/HealthBar.svelte";
+  import Avatar from "../components/Avatar.svelte";
+  import { avatarUrl } from "../../shared/types";
   import { Narrator } from "../lib/voice.svelte";
   import type { VoiceMode, VoicesResponse } from "../../shared/types";
 
@@ -54,6 +56,10 @@
     if (mode === "elevenlabs") loadVoices(); // refresh credits
   }
   const party = $derived(v ? v.characters.filter((c) => c.playerName) : []);
+  const avatarFor = (speaker: string) => {
+    const c = v?.characters.find((x) => x.name === speaker);
+    return c ? avatarUrl(code, c) : null;
+  };
   const modeLabel = $derived(
     !v ? "" : v.mode === "combat" ? `Combat · round ${v.combat?.round ?? 1}` : v.mode === "conversation" ? "Conversation" : "Exploration",
   );
@@ -112,6 +118,7 @@
         {/if}
         {#each party as c (c.id)}
           <div class="member">
+            <Avatar src={avatarUrl(code, c)} name={c.name} size={48} />
             <span class="dot" class:on={c.online}></span>
             <div class="grow">
               <b>{c.name}</b> <span class="muted small">· {c.playerName}</span>
@@ -139,7 +146,7 @@
         <span class="chip gold">{modeLabel}</span>
       </header>
       {#if v.scene}<p class="scene muted">{v.scene}</p>{/if}
-      <Feed log={v.log} pending={v.pending} busy={v.busy} big npcs={v.npcs} speakingId={narrator.speakingId} onReplay={(m) => narrator.replay(m, v.npcs)} />
+      <Feed log={v.log} pending={v.pending} busy={v.busy} big npcs={v.npcs} {avatarFor} speakingId={narrator.speakingId} onReplay={(m) => narrator.replay(m, v.npcs)} />
     </section>
 
     <aside>
@@ -183,6 +190,7 @@
         {#each party as c (c.id)}
           <div class="pc" class:down={c.health === 0} class:acting={v.combat?.activeId === c.id}>
             <div class="row">
+              <Avatar src={avatarUrl(code, c)} name={c.name} size={36} />
               <span class="dot" class:on={c.online}></span>
               <b class="grow">{c.name}</b>
               <span class="small muted">{c.playerName}</span>

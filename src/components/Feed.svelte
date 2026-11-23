@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Message } from "../../shared/types";
   import { parseSpeech, type SpeechNpc } from "../../shared/speech";
+  import Avatar from "./Avatar.svelte";
   import { tick } from "svelte";
 
   let {
@@ -14,6 +15,7 @@
     npcs = [],
     onReplay,
     speakingId = null,
+    avatarFor,
   }: {
     log: Message[];
     pending?: Message[];
@@ -25,6 +27,7 @@
     npcs?: SpeechNpc[];
     onReplay?: (m: Message) => void;
     speakingId?: number | null;
+    avatarFor?: (speaker: string) => string | null;
   } = $props();
 
   let box: HTMLDivElement;
@@ -59,6 +62,7 @@
       </p>
     {:else}
       <p class="say" class:talk={!m.aloud}>
+        {#if avatarFor}<Avatar src={avatarFor(m.speaker)} name={m.speaker} size={big ? 34 : 24} />{/if}
         <b>{m.speaker}</b>{#if !m.aloud}<span class="tag">table talk</span>{/if}
         <span>{m.text}</span>
       </p>
@@ -153,7 +157,7 @@
     padding: 0.45rem 0.7rem;
     display: flex;
     gap: 0.5rem;
-    align-items: baseline;
+    align-items: center;
     flex-wrap: wrap;
   }
   .big .say {

@@ -68,6 +68,11 @@ async function main() {
   await clickText(anna, "Create a new character");
   await anna.type("#cname", "Thorin");
   await anna.type("#concept", "Exiled dwarf locksmith");
+  const fileInput = await anna.$('input[type="file"]');
+  await fileInput!.uploadFile("tests/fixtures/portrait.png");
+  await anna.waitForSelector(".photo img.av", { timeout: 5000 });
+  const previewLen = await anna.$eval(".photo img.av", (i) => (i as HTMLImageElement).src.length);
+  console.log(previewLen < 150000 ? `PASS  900x600 photo shrunk to ${Math.round(previewLen / 1024)} KB before upload` : `FAIL  preview too large: ${previewLen}`);
   for (let i = 0; i < 4; i++) await anna.click('button[aria-label="Raise strength"]');
   for (let i = 0; i < 4; i++) await anna.click('button[aria-label="Raise stamina"]');
   await anna.type('input[aria-label="Ability name"]', "Master Key");
@@ -93,6 +98,8 @@ async function main() {
   });
   await waitText(ben, "Exploration");
   await sleep(300);
+  const lobbyImg = await screen.waitForSelector(".member img.av", { timeout: 5000 }).then(() => true).catch(() => false);
+  console.log(lobbyImg ? "PASS  portrait shows on the main screen" : "FAIL  no portrait on the main screen");
   await shot(screen, "05-screen-lobby");
 
   // Voice: switch the main screen to ElevenLabs before the story starts

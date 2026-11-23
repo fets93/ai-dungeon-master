@@ -61,7 +61,8 @@ async function api(request: Request, env: Env, path: string[]): Promise<Response
     const state = (await request.json().catch(() => null)) as GameState | null;
     if (!state?.config || !Array.isArray(state.characters)) return json({ error: "Not a campaign export file." }, 400);
     const code = await newCode(env);
-    const summary = await campaign(env, code).init(code, readConfig(state.config), { ...state, config: readConfig(state.config), pending: [] });
+    const { avatars, ...rest } = state as GameState & { avatars?: Record<string, string> };
+    const summary = await campaign(env, code).init(code, readConfig(state.config), { ...rest, config: readConfig(state.config), pending: [] }, avatars);
     await registry(env).upsert(summary);
     return json({ code }, 201);
   }
@@ -78,7 +79,8 @@ async function api(request: Request, env: Env, path: string[]): Promise<Response
   if (path[2] === "export" && method === "GET") {
     const state = await campaign(env, code).exportState();
     if (state) for (const p of state.players) p.token = ""; // device tokens stay private
-    return new Response(JSON.stringify(state, null, 2), {
+    const avatars = await campaign(env, code).avatarsForExport();
+    return new Response(JSON.stringify({ ...state, avatars }, null, 2), {
       headers: { "content-type": "application/json", "content-disposition": `attachment; filename="campaign-${code}.json"` },
     });
   }
@@ -134,6 +136,16 @@ export default {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
     try {
+      if (parts[0] === "api" && parts[1] === "avatar" && parts[2] && parts[3]) {
+        const code = parts[2].toUpperCase();
+        if (!(await registry(env).get(code))) return new Response("Not found", { status: 404 });
+        const dataUrl = await campaign(env, code).getAvatar(decodeURIComponent(parts[3]));
+        if (!dataUrl) return new Response("Not found", { status: 404 });
+        const [, type, b64] = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/)!;
+        const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+        // The URL carries ?v=<version>, so a cached copy never goes stale.
+        return new Response(bytes, { headers: { "content-type": type, "cache-control": "public, max-age=31536000, immutable" } });
+      }
       if (parts[0] === "api" && parts[1] === "voices") return await voicesApi(env);
       if (parts[0] === "api" && parts[1] === "tts") return await ttsApi(env, ctx, parts);
       if (parts[0] === "api" && parts[1] === "version") return json({ version: APP_VERSION });

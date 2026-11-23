@@ -2,6 +2,7 @@
 // the WebSocket hub for the main screen and the phones, and the place where the DM runs.
 import { DurableObject } from "cloudflare:workers";
 import {
+  AVATAR_MAX_BYTES,
   BACKSTORY_MAX,
   MAX_ABILITIES,
   MAX_ITEMS,
@@ -56,7 +57,7 @@ export class Campaign extends DurableObject<Env> {
 
   // ---------- RPC from the Worker ----------
 
-  async init(code: string, config: CampaignConfig, carry?: Partial<GameState>): Promise<CampaignSummary> {
+  async init(code: string, config: CampaignConfig, carry?: Partial<GameState>, avatars?: Record<string, string>): Promise<CampaignSummary> {
     const now = Date.now();
     this.s = {
       code,
@@ -90,6 +91,9 @@ export class Campaign extends DurableObject<Env> {
     for (const c of this.s.characters) {
       c.ownerId = null;
       c.present = false;
+      const a = avatars?.[c.id];
+      c.avatarVersion = 0;
+      if (a) await this.storeAvatar(c, a).catch(() => {});
     }
     await this.save();
     return this.summary();
@@ -242,6 +246,7 @@ export class Campaign extends DurableObject<Env> {
       case "create_character": {
         const p = needPlayer();
         const c = this.buildCharacter(msg.character);
+        if (msg.character.avatar) await this.storeAvatar(c, msg.character.avatar);
         this.releaseCharacter(p);
         c.ownerId = p.id;
         p.characterId = c.id;
@@ -258,6 +263,15 @@ export class Campaign extends DurableObject<Env> {
         const c = myCharacter();
         if (!c) throw new Error("You don't have a character.");
         c.backstory = String(msg.text ?? "").trim().slice(0, BACKSTORY_MAX);
+        await this.save();
+        return this.broadcast();
+      }
+
+      case "set_avatar": {
+        needPlayer();
+        const c = myCharacter();
+        if (!c) throw new Error("You don't have a character.");
+        await this.storeAvatar(c, msg.dataUrl);
         await this.save();
         return this.broadcast();
       }
@@ -409,6 +423,29 @@ export class Campaign extends DurableObject<Env> {
     };
   }
 
+  // Portraits live in their own storage keys, so game updates stay small; clients load them by URL.
+  private async storeAvatar(c: Character, dataUrl: string | null) {
+    if (!dataUrl) {
+      await this.ctx.storage.delete(`avatar:${c.id}`);
+      c.avatarVersion = 0;
+      return;
+    }
+    if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) throw new Error("That image format isn't supported.");
+    if (dataUrl.length > AVATAR_MAX_BYTES) throw new Error("That image is too large.");
+    await this.ctx.storage.put(`avatar:${c.id}`, dataUrl);
+    c.avatarVersion = (c.avatarVersion ?? 0) + 1;
+  }
+
+  async getAvatar(characterId: string): Promise<string | null> {
+    return (await this.ctx.storage.get<string>(`avatar:${characterId}`)) ?? null;
+  }
+
+  async avatarsForExport(): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    for (const [k, v] of await this.ctx.storage.list<string>({ prefix: "avatar:" })) out[k.slice(7)] = v;
+    return out;
+  }
+
   private onlinePlayerIds(): Set<string> {
     const ids = new Set<string>();
     for (const ws of this.sockets()) {
@@ -458,6 +495,7 @@ export class Campaign extends DurableObject<Env> {
         online: !!c.ownerId && online.has(c.ownerId),
         hasPin: !!c.pin,
         readyMade: !!c.readyMade,
+        avatarVersion: c.avatarVersion ?? 0,
       })),
       spectators: s.players.filter((p) => p.spectator && online.has(p.id)).map((p) => p.name),
       log: s.log.slice(-120),

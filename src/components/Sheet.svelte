@@ -1,8 +1,30 @@
 <script lang="ts">
   import { BACKSTORY_MAX, STATS, modifier, type Character } from "../../shared/types";
   import HealthBar from "./HealthBar.svelte";
+  import Avatar from "./Avatar.svelte";
+  import { avatarUrl } from "../../shared/types";
+  import { resizeToAvatar } from "../lib/avatar";
 
-  let { c, onSaveBackstory }: { c: Character; onSaveBackstory?: (text: string) => void } = $props();
+  let {
+    c,
+    code,
+    onSaveBackstory,
+    onChangeAvatar,
+  }: { c: Character; code: string; onSaveBackstory?: (text: string) => void; onChangeAvatar?: (dataUrl: string | null) => void } = $props();
+
+  let photoError = $state<string | null>(null);
+  async function pickPhoto(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    try {
+      photoError = null;
+      onChangeAvatar?.(await resizeToAvatar(file));
+    } catch (err) {
+      photoError = (err as Error).message;
+    }
+  }
 
   let editing = $state(false);
   let draft = $state("");
@@ -17,8 +39,20 @@
 </script>
 
 <div class="sheet">
-  <h2>{c.name}</h2>
-  <p class="muted concept">{c.concept}</p>
+  <div class="row head">
+    <Avatar src={avatarUrl(code, c)} name={c.name} size={84} />
+    <div class="grow">
+      <h2>{c.name}</h2>
+      <p class="muted concept">{c.concept}</p>
+      {#if onChangeAvatar}
+        <label class="pick small">
+          <input type="file" accept="image/*" onchange={pickPhoto} hidden />
+          <span>{c.avatarVersion ? "Change picture" : "Add a picture"}</span>
+        </label>
+        {#if photoError}<p class="small bad">{photoError}</p>{/if}
+      {/if}
+    </div>
+  </div>
   <HealthBar health={c.health} max={c.maxHealth} size="lg" />
   {#if c.conditions.length}
     <div class="row wrap conds">
@@ -91,7 +125,27 @@
     font-size: 1.05rem;
   }
   .concept {
-    margin: -0.3rem 0 0.75rem;
+    margin: -0.3rem 0 0.4rem;
+  }
+  .head {
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  .head h2 {
+    margin: 0 0 0.3rem;
+  }
+  .pick {
+    margin: 0;
+    display: inline-block;
+  }
+  .pick span {
+    color: var(--gold);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .bad {
+    color: var(--bad);
   }
   .conds {
     margin-top: 0.5rem;

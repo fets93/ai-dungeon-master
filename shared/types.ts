@@ -34,6 +34,7 @@ export interface Character {
   pin: string | null; // optional 4-digit PIN to claim it
   readyMade?: boolean;
   present?: boolean; // owner is connected right now (set by the server)
+  avatarVersion?: number; // > 0 when a portrait is stored; bumps on every change (cache busting)
 }
 
 export type VoiceGender = "male" | "female" | "neutral";
@@ -154,6 +155,7 @@ export interface PublicCharacter {
   online: boolean;
   hasPin: boolean;
   readyMade: boolean;
+  avatarVersion: number;
 }
 
 export interface PublicView {
@@ -196,6 +198,7 @@ export interface NewCharacterInput {
   abilities: { name: string; description: string; usesPerRest: number }[];
   items: string[]; // "2x Healing potion" or "Rope"
   pin: string;
+  avatar?: string | null; // data:image/jpeg;base64,… already resized on the phone
 }
 
 export type ClientMsg =
@@ -207,6 +210,7 @@ export type ClientMsg =
   | { t: "spectate" }
   | { t: "leave_character" }
   | { t: "update_backstory"; text: string }
+  | { t: "set_avatar"; dataUrl: string | null }
   | { t: "say"; text: string; aloud: boolean }
   | { t: "unsay"; id: number }
   | { t: "send_to_dm" }
@@ -254,6 +258,10 @@ export const STAT_POINTS = 8; // extra points above base 10; lowering a stat bel
 export const MAX_ABILITIES = 3;
 export const MAX_ITEMS = 6;
 export const BACKSTORY_MAX = 3000; // about 500 words
+export const AVATAR_SIZE = 320; // px, square
+export const AVATAR_MAX_BYTES = 200_000; // data URL length limit, far above a 320px JPEG
+export const avatarUrl = (code: string, c: { id: string; avatarVersion?: number }) =>
+  c.avatarVersion ? `/api/avatar/${code}/${encodeURIComponent(c.id)}?v=${c.avatarVersion}` : null;
 
 export const modifier = (score: number) => Math.floor((score - 10) / 2);
 export const maxHealthFor = (stamina: number) => 14 + 2 * modifier(stamina);
