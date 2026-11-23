@@ -1,0 +1,6 @@
+# Local development settings for `wrangler dev`. Copy to .dev.vars.
+# Fake DM: no API key needed, no cost.
+MOCK_LLM=1
+
+# Real DM locally: remove MOCK_LLM above and set your key.
+# ANTHROPIC_API_KEY=sk-ant-...
