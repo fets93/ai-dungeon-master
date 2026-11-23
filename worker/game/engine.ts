@@ -1,13 +1,34 @@
 // The Send to DM pipeline: referee -> server checks and dice -> DM narration with tools.
 import type Anthropic from "@anthropic-ai/sdk";
 import type { GameState, Message, ResolvedAction, Ruling } from "../../shared/types";
-import type { Llm } from "./llm";
+import type { CreateParams, Llm } from "./llm";
 import { dmSystem, dmTurnContext, OPENING_INSTRUCTION, refereeContext, refereeSystem, storyRequest, storySystem, SUMMARY_SYSTEM } from "./prompts";
 import { advanceCombatTurn, applyTool, resolve } from "./rules";
 import { DM_TOOLS, REFEREE_TOOL, STORY_TOOL } from "./tools";
 import { plainSpeech } from "../../shared/speech";
 
 const CACHED_TOOLS: Anthropic.Tool[] = DM_TOOLS.map((t, i) => (i === DM_TOOLS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t));
+
+// Claude Opus 5.5, Sonnet 5.5, Fable and Mythos reject forced tool use (tool_choice "tool"/"any").
+// For those, ask for the tool in the prompt with tool_choice "auto" and retry once if it answers in text.
+const supportsForcedTools = (model: string) => !/opus-5-5|sonnet-5-5|fable|mythos/.test(model);
+
+async function callTool(llm: Llm, role: string, params: CreateParams, toolName: string): Promise<Record<string, unknown> | null> {
+  const forced = supportsForcedTools(params.model);
+  const messages = [...params.messages];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const msg = await llm.call(role, {
+      ...params,
+      messages,
+      tool_choice: forced ? { type: "tool", name: toolName } : { type: "auto" },
+    });
+    const block = msg.content.find((b) => b.type === "tool_use" && b.name === toolName) as Anthropic.ToolUseBlock | undefined;
+    if (block) return block.input as Record<string, unknown>;
+    messages.push({ role: "assistant", content: msg.content.filter((b) => b.type === "text").length ? msg.content : "(no answer)" });
+    messages.push({ role: "user", content: `Answer only by calling the ${toolName} tool now.` });
+  }
+  return null;
+}
 
 function log(s: GameState, m: Omit<Message, "id">) {
   s.log.push({ ...m, id: s.nextMsgId++ });
@@ -23,16 +44,19 @@ async function runReferee(s: GameState, llm: Llm, batch: Message[]): Promise<Rul
   // The referee only sees what was said aloud; table talk is not an action.
   const aloudOnly = { ...s, pending: batch.filter((m) => m.aloud) };
   const indexMap = batch.map((m, i) => (m.aloud ? i : -1)).filter((i) => i >= 0);
-  const msg = await llm.call("referee", {
-    model: llm.refereeModel,
-    max_tokens: 1200,
-    system: refereeSystem(s),
-    tools: [REFEREE_TOOL],
-    tool_choice: { type: "tool", name: "adjudicate" },
-    messages: [{ role: "user", content: refereeContext(aloudOnly) }],
-  });
-  const block = msg.content.find((b) => b.type === "tool_use") as Anthropic.ToolUseBlock | undefined;
-  const raw = ((block?.input as any)?.rulings ?? []) as any[];
+  const input = await callTool(
+    llm,
+    "referee",
+    {
+      model: llm.refereeModel,
+      max_tokens: 1200,
+      system: refereeSystem(s) + "\n\nAlways answer by calling the adjudicate tool, never in plain text.",
+      tools: [REFEREE_TOOL],
+      messages: [{ role: "user", content: refereeContext(aloudOnly) }],
+    },
+    "adjudicate",
+  );
+  const raw = ((input as any)?.rulings ?? []) as any[];
   const seen = new Set<number>();
   const rulings: Ruling[] = [];
   for (const r of raw) {
@@ -108,16 +132,19 @@ async function runDm(s: GameState, llm: Llm, userText: string): Promise<string> 
 }
 
 export async function generateStory(s: GameState, llm: Llm) {
-  const msg = await llm.call("story", {
-    model: llm.dmModel,
-    max_tokens: 800,
-    system: storySystem(),
-    tools: [STORY_TOOL],
-    tool_choice: { type: "tool", name: "set_story" },
-    messages: [{ role: "user", content: storyRequest(s) }],
-  });
-  const block = msg.content.find((b) => b.type === "tool_use") as Anthropic.ToolUseBlock | undefined;
-  const input = (block?.input ?? {}) as { title?: string; story_arc?: string; blurb?: string };
+  const input = ((await callTool(
+    llm,
+    "story",
+    {
+      model: llm.dmModel,
+      max_tokens: 1200,
+      system: storySystem() + "\n\nAnswer only by calling the set_story tool.",
+      tools: [STORY_TOOL],
+      messages: [{ role: "user", content: storyRequest(s) }],
+    },
+    "set_story",
+  )) ?? {}) as { title?: string; story_arc?: string; blurb?: string };
+  if (!input.story_arc) throw new Error("The DM couldn't write the story. Try opening the campaign again.");
   if (input.story_arc) s.storyArc = input.story_arc;
   if (input.blurb) s.blurb = input.blurb.slice(0, 600);
   if (input.title && (!s.config.title || s.config.title === "New campaign")) s.config.title = input.title.slice(0, 80);

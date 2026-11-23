@@ -25,6 +25,11 @@ function userText(p: CreateParams, which: "first" | "last" = "last"): string {
 }
 
 export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
+  // Same rule as the real API: these models reject forced tool use.
+  if (/opus-5-5|sonnet-5-5|fable|mythos/.test(p.model) && ["tool", "any"].includes((p.tool_choice as any)?.type))
+    throw new Error('400 tool_choice: type "tool" and "any" are not supported for this model.');
+  // The story writer answers in prose first, to exercise the retry.
+  if (role === "story" && p.messages.length === 1) return msg(p.model, [text("Here is a story idea for you…")], "end_turn");
   if (role === "summary") return msg(p.model, [text("Mock summary: the party has been busy in the harbor.")], "end_turn");
   if (role === "story")
     return msg(p.model, [tool("set_story", { title: "The Drowned Lantern", blurb: "Saltmere is a rain-soaked harbor city where ships vanish on calm nights. You meet in the Drowned Lantern tavern on the night the harbor is closed. Sailors, smugglers and odd folk welcome.", story_arc: "Ships vanish on calm nights in the harbor city of Saltmere. A stolen ledger leads through smugglers and a corrupt harbor master to a drowned temple, where a cult wants to wake something old. The players decide what to do with what sleeps there." })], "tool_use");
