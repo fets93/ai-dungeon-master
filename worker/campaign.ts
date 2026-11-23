@@ -282,6 +282,29 @@ export class Campaign extends DurableObject<Env> {
         return this.broadcast();
       }
 
+      case "remove_character": {
+        if (att.role !== "screen" && !player?.isHost) throw new Error("Only the main screen or the host can remove characters.");
+        const c = s.characters.find((x) => x.id === msg.characterId);
+        if (!c) throw new Error("That character doesn't exist.");
+        const owner = s.players.find((p) => p.id === c.ownerId);
+        if (owner) this.releaseCharacter(owner);
+        c.ownerId = null;
+        if (s.combat) {
+          s.combat.order = s.combat.order.filter((id) => id !== c.id);
+          if (s.combat.index >= s.combat.order.length) s.combat.index = 0;
+        }
+        if (msg.deleteIt && !c.readyMade) {
+          s.characters = s.characters.filter((x) => x !== c);
+          await this.ctx.storage.delete(`avatar:${c.id}`);
+          this.event(`${c.name} was removed from the campaign.`);
+        } else {
+          this.event(`${c.name} left the table.`);
+        }
+        await this.save();
+        this.broadcast();
+        return this.updateRegistry();
+      }
+
       case "spectate":
       case "leave_character": {
         const p = needPlayer();
@@ -314,9 +337,12 @@ export class Campaign extends DurableObject<Env> {
       case "begin": {
         if (att.role !== "screen" && !player?.isHost) throw new Error("Only the host or the main screen can start the adventure.");
         if (s.started) throw new Error("The adventure has already started.");
-        this.markPresence();
-        if (!s.characters.some((c) => c.present)) throw new Error("At least one player needs a character first.");
-        return this.runLlm(() => opening(s, this.llm()));
+        if (!s.characters.some((c) => c.ownerId)) throw new Error("At least one character needs to be at the table first.");
+        // Everyone at the table is part of the opening scene, even if their phone is locked right now.
+        return this.runLlm(async () => {
+          for (const c of s.characters) c.present = !!c.ownerId;
+          await opening(s, this.llm());
+        }, false);
       }
 
       case "set_voice": {
@@ -356,10 +382,10 @@ export class Campaign extends DurableObject<Env> {
     return makeLlm(this.env, (usd) => (this.s!.costUsd += usd));
   }
 
-  private async runLlm(work: () => Promise<void>) {
+  private async runLlm(work: () => Promise<void>, presence = true) {
     if (this.busy) throw new Error("The DM is still thinking.");
     this.busy = true;
-    this.markPresence();
+    if (presence) this.markPresence();
     this.broadcast();
     try {
       await work();

@@ -44,7 +44,7 @@ class Client {
     return false;
   }
   get view() {
-    return this.last!.view;
+    return this.last?.view as NonNullable<typeof this.last>["view"];
   }
   get you() {
     return this.last?.you ?? null;
@@ -270,6 +270,50 @@ async function main() {
   const lib = (await (await fetch(`${BASE}/api/campaigns`)).json()) as any[];
   check(lib.find((x) => x.code === code)?.party.includes("Thorin"), "library card shows the party");
   check(screen.view.costUsd > 0, `cost tracked: $${screen.view.costUsd}`);
+
+  // Removing characters and starting with offline players (fresh campaign)
+  const r2 = await fetch(`${BASE}/api/campaigns`, { method: "POST", body: JSON.stringify({ prompt: "test" }) });
+  const { code: code4 } = (await r2.json()) as { code: string };
+  const scr = new Client("screen2");
+  await scr.connect(code4);
+  scr.send({ t: "hello", role: "screen" });
+  await scr.until(() => !!scr.view?.blurb && !scr.view.busy, "story2", 8000);
+  const p1 = new Client("p1");
+  await p1.connect(code4);
+  p1.send({ t: "hello", role: "phone" });
+  p1.send({ t: "join", name: "Host" });
+  await p1.until(() => !!p1.you, "p1 joined");
+  const p2 = new Client("p2");
+  await p2.connect(code4);
+  p2.send({ t: "hello", role: "phone" });
+  p2.send({ t: "join", name: "Guest" });
+  await p2.until(() => !!p2.you, "p2 joined");
+  p1.send({ t: "create_character", character: char("Keeper") });
+  p2.send({ t: "create_character", character: char("Tester") });
+  await scr.until(() => scr.view.characters.filter((x) => x.playerName).length === 2, "two at table");
+  const tester = () => scr.view.characters.find((x) => x.name === "Tester");
+  p2.send({ t: "remove_character", characterId: tester()!.id, deleteIt: true });
+  await p2.until(() => p2.errors.length > 0, "guest remove error");
+  check(p2.errors.at(-1)?.includes("host"), "only screen/host can remove characters");
+  scr.send({ t: "remove_character", characterId: tester()!.id, deleteIt: false });
+  await scr.until(() => !tester()?.playerName, "tester removed");
+  check(!!tester() && !tester()!.playerName, "Remove takes a character off the table but keeps it");
+  await p2.until(() => p2.you?.character === null, "p2 back to picking");
+  check(p2.you?.character === null, "removed player's phone goes back to picking a character");
+  p1.send({ t: "remove_character", characterId: tester()!.id, deleteIt: true });
+  await scr.until(() => !tester(), "tester deleted");
+  check(!tester(), "host can delete a character for good");
+  scr.send({ t: "remove_character", characterId: "premade-brann", deleteIt: true });
+  await scr.until(() => scr.view.log.some((m) => m.text.startsWith("Brann left")), "brann released");
+  check(!!scr.view.characters.find((x) => x.id === "premade-brann"), "ready-made characters are never deleted");
+  p1.ws.close();
+  p2.ws.close();
+  await scr.until(() => !scr.view.characters.find((x) => x.name === "Keeper")!.online, "keeper offline");
+  scr.send({ t: "begin" });
+  await scr.until(() => scr.view.started && !scr.view.busy, "offline begin", 8000);
+  check(scr.view.started, "adventure starts while every player is offline");
+  scr.ws.close();
+  await fetch(`${BASE}/api/campaigns/${code4}`, { method: "DELETE" });
 
   for (const x of [screen, a2, b, c, d]) x.ws.close();
   await fetch(`${BASE}/api/campaigns/${code2}`, { method: "DELETE" });

@@ -51,6 +51,13 @@
     lastSeen = Math.max(lastSeen, maxId);
   });
 
+  function removeChar(c: { id: string; name: string; readyMade: boolean }, deleteIt: boolean) {
+    const q = deleteIt
+      ? `Delete ${c.name} for good? Their sheet and picture are removed.`
+      : `Take ${c.name} off the table? The character is kept and can be picked again.`;
+    if (confirm(q)) game.send({ t: "remove_character", characterId: c.id, deleteIt });
+  }
+
   function setMode(mode: VoiceMode) {
     narrator.stop();
     game.send({ t: "set_voice", mode });
@@ -137,16 +144,20 @@
             <Avatar src={avatarUrl(code, c)} name={c.name} size={64} />
             <span class="dot" class:on={c.online}></span>
             <div class="grow">
-              <b>{c.name}</b> <span class="muted small">· {c.playerName}</span>
+              <b>{c.name}</b> <span class="muted small">· {c.playerName}{c.online ? "" : " (offline)"}</span>
               <div class="small muted">{c.concept}</div>
+            </div>
+            <div class="rm">
+              <button class="ghost small" onclick={() => removeChar(c, false)}>Remove</button>
+              {#if !c.readyMade}<button class="ghost small danger" onclick={() => removeChar(c, true)}>Delete</button>{/if}
             </div>
           </div>
         {/each}
         {#if v.spectators.length}<p class="small muted">Watching: {v.spectators.join(", ")}</p>{/if}
-        <button class="primary begin" disabled={v.busy || !party.some((c) => c.online)} onclick={() => game.send({ t: "begin" })}>
+        <button class="primary begin" disabled={v.busy || party.length === 0} onclick={() => game.send({ t: "begin" })}>
           {#if v.busy}<span class="thinking">The DM is preparing the story</span>{:else}Begin the adventure{/if}
         </button>
-        <p class="small muted">The host's phone can start it too. Late players can still join after the start.</p>
+        <p class="small muted">Offline players are included and can rejoin any time. The host's phone can start it too, and late players can still join after the start.</p>
       </div>
       {@render voicePanel(v)}
     </div>
@@ -211,6 +222,7 @@
               <span class="dot" class:on={c.online}></span>
               <b class="grow">{c.name}</b>
               <span class="small muted">{c.playerName}</span>
+              <button class="ghost tiny" title="Take {c.name} off the table" aria-label="Take {c.name} off the table" onclick={() => removeChar(c, false)}>×</button>
             </div>
             <HealthBar health={c.health} max={c.maxHealth} />
             {#if c.conditions.length}
@@ -296,6 +308,26 @@
     padding: 0.6rem 0;
     border-bottom: 1px solid var(--line);
     font-size: 1.15rem;
+  }
+  .rm {
+    display: flex;
+    gap: 0.25rem;
+    opacity: 0.55;
+  }
+  .member:hover .rm {
+    opacity: 1;
+  }
+  .rm button {
+    min-height: 32px;
+    padding: 0.2rem 0.55rem;
+  }
+  .tiny {
+    min-height: 0;
+    padding: 0 0.35rem;
+    border: none;
+    color: var(--muted);
+    font-size: 1.1rem;
+    line-height: 1;
   }
   .begin {
     width: 100%;

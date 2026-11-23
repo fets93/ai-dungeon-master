@@ -215,6 +215,7 @@ export type ClientMsg =
   | { t: "leave_character" }
   | { t: "update_backstory"; text: string }
   | { t: "set_avatar"; dataUrl: string | null }
+  | { t: "remove_character"; characterId: string; deleteIt: boolean }
   | { t: "say"; text: string; aloud: boolean }
   | { t: "unsay"; id: number }
   | { t: "send_to_dm" }
