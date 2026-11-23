@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Message } from "../../shared/types";
+  import { parseSpeech, type SpeechNpc } from "../../shared/speech";
   import { tick } from "svelte";
 
   let {
@@ -10,6 +11,9 @@
     showTableTalk = true,
     myPlayerId = null,
     onUnsay,
+    npcs = [],
+    onReplay,
+    speakingId = null,
   }: {
     log: Message[];
     pending?: Message[];
@@ -18,6 +22,9 @@
     showTableTalk?: boolean;
     myPlayerId?: string | null;
     onUnsay?: (id: number) => void;
+    npcs?: SpeechNpc[];
+    onReplay?: (m: Message) => void;
+    speakingId?: number | null;
   } = $props();
 
   let box: HTMLDivElement;
@@ -35,7 +42,16 @@
 <div class="feed" class:big bind:this={box}>
   {#each visible as m (m.id)}
     {#if m.speaker === "DM"}
-      <p class="dm">{m.text}</p>
+      <div class="dm" class:speaking={speakingId === m.id}>
+        {#each parseSpeech(m.text, npcs) as seg}
+          {#if seg.kind === "npc"}
+            <span class="line"><b>{seg.name}</b> “{seg.text}”</span>
+          {:else}
+            <span>{seg.text}</span>
+          {/if}{" "}
+        {/each}
+        {#if onReplay}<button class="ghost replay" aria-label="Read this aloud" title="Read aloud" onclick={() => onReplay(m)}>▶</button>{/if}
+      </div>
     {:else if m.speaker === "SYSTEM"}
       <p class="sys {m.kind ?? ''}">
         {#if m.kind === "roll"}🎲{:else if m.kind === "rejected"}✖{:else if m.kind === "join"}➜{:else}•{/if}
@@ -85,9 +101,33 @@
     font-family: var(--serif);
     font-size: 1.08rem;
     line-height: 1.55;
-    white-space: pre-wrap;
     padding: 0.2rem 0 0.2rem 0.8rem;
     border-left: 3px solid var(--gold);
+  }
+  .dm > span {
+    white-space: pre-line; /* keep the DM's paragraph breaks */
+  }
+  .dm .line {
+    color: #f3d9a4;
+  }
+  .dm .line b {
+    font-family: var(--sans);
+    font-size: 0.75em;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--gold);
+    margin-right: 0.15em;
+  }
+  .dm.speaking {
+    border-left-color: var(--good);
+  }
+  .replay {
+    min-height: 0;
+    padding: 0 0.4rem;
+    border: none;
+    font-size: 0.8em;
+    color: var(--muted);
+    vertical-align: middle;
   }
   .big .dm {
     font-size: clamp(1.25rem, 1.6vw, 1.7rem);

@@ -21,8 +21,12 @@ import {
   type Player,
   type PublicView,
   type ServerMsg,
+  type VoiceInfo,
+  type VoiceMode,
   type YouView,
 } from "../shared/types";
+import { parseSpeech, plainSpeech } from "../shared/speech";
+import { matchVoice, pickNarrator } from "./voice";
 import { opening, sendToDm } from "./game/engine";
 import { makeLlm } from "./game/llm";
 import { premadeCharacters } from "./game/premades";
@@ -42,6 +46,11 @@ export class Campaign extends DurableObject<Env> {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
       this.s = (await ctx.storage.get<GameState>("state")) ?? null;
+      if (this.s) {
+        // Fields added after the first release: fill defaults for older saves.
+        this.s.voiceMode ??= "off";
+        this.s.narratorVoiceId ??= null;
+      }
     });
   }
 
@@ -72,6 +81,8 @@ export class Campaign extends DurableObject<Env> {
       introductions: [],
       nextMsgId: 1,
       costUsd: 0,
+      voiceMode: "off",
+      narratorVoiceId: null,
       ...carry,
     };
     this.s.code = code;
@@ -82,6 +93,36 @@ export class Campaign extends DurableObject<Env> {
     }
     await this.save();
     return this.summary();
+  }
+
+  // Text and voice for one spoken part of a DM message. Text always comes from the log, never from the client.
+  async speechSegment(messageId: number, index: number, voices: VoiceInfo[]): Promise<{ text: string; voiceId: string } | null> {
+    const s = this.s;
+    const m = s?.log.find((x) => x.id === messageId && x.speaker === "DM");
+    if (!s || !m) return null;
+    const seg = parseSpeech(m.text, s.npcs)[index];
+    if (!seg) return null;
+    let changed = false;
+    if (!s.narratorVoiceId || !voices.some((v) => v.id === s.narratorVoiceId)) {
+      s.narratorVoiceId = pickNarrator(voices);
+      changed = true;
+    }
+    let voiceId = s.narratorVoiceId;
+    if (seg.kind === "npc") {
+      const npc = s.npcs.find((n) => n.id === seg.npcId)!;
+      npc.voice ??= { gender: "neutral", age: "middle_aged", style: npc.speechStyle };
+      if (!npc.voice.voiceId || !voices.some((v) => v.id === npc.voice!.voiceId)) {
+        const taken = new Set(s.npcs.map((n) => n.voice?.voiceId).filter((x): x is string => !!x));
+        npc.voice.voiceId = matchVoice(npc.voice, npc.id, voices, taken, s.narratorVoiceId) ?? undefined;
+        changed = true;
+      }
+      voiceId = npc.voice.voiceId ?? voiceId;
+    }
+    if (changed) {
+      await this.save();
+      this.broadcast();
+    }
+    return voiceId ? { text: seg.text, voiceId } : null;
   }
 
   async exportState(): Promise<GameState | null> {
@@ -258,6 +299,17 @@ export class Campaign extends DurableObject<Env> {
         return this.runLlm(() => opening(s, this.llm()));
       }
 
+      case "set_voice": {
+        if (att.role !== "screen" && !player?.isHost) throw new Error("Only the main screen or the host can change the voice.");
+        if (msg.mode && ["off", "browser", "elevenlabs"].includes(msg.mode)) s.voiceMode = msg.mode as VoiceMode;
+        if (msg.narratorVoiceId !== undefined) {
+          s.narratorVoiceId = msg.narratorVoiceId || null;
+          for (const n of s.npcs) if (n.voice?.voiceId === s.narratorVoiceId) n.voice.voiceId = undefined; // re-match clashes
+        }
+        await this.save();
+        return this.broadcast();
+      }
+
       case "send_to_dm": {
         const p = needPlayer();
         if (!s.started) throw new Error("The adventure hasn't started yet.");
@@ -411,9 +463,11 @@ export class Campaign extends DurableObject<Env> {
       log: s.log.slice(-120),
       pending: s.pending,
       facts: s.facts,
-      npcs: s.npcs.map((n) => ({ name: n.name, attitude: n.attitude })),
+      npcs: s.npcs.map((n) => ({ id: n.id, name: n.name, attitude: n.attitude, gender: n.voice?.gender ?? "neutral", age: n.voice?.age ?? "middle_aged" })),
       summary: s.summary,
       costUsd: Math.round(s.costUsd * 10000) / 10000,
+      voiceMode: s.voiceMode,
+      narratorVoiceId: s.narratorVoiceId,
     };
   }
 
@@ -451,7 +505,7 @@ export class Campaign extends DurableObject<Env> {
       title: s.config.title,
       started: s.started,
       party: s.characters.filter((c) => c.ownerId || (!c.readyMade && s.started)).map((c) => c.name),
-      summary: s.summary || ([...s.log].reverse().find((m) => m.speaker === "DM")?.text.slice(0, 220) ?? s.storyArc.slice(0, 220)),
+      summary: s.summary || plainSpeech([...s.log].reverse().find((m) => m.speaker === "DM")?.text ?? s.storyArc, s.npcs).slice(0, 220),
       lastPlayed: s.lastPlayed,
       createdAt: s.createdAt,
     };

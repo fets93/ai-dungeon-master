@@ -4,6 +4,8 @@ import type { CampaignConfig, GameState, Strictness } from "../shared/types";
 import { Campaign } from "./campaign";
 import { Registry } from "./registry";
 import { APP_VERSION } from "../shared/version";
+import { credits, listVoices, synthesize, voiceConfigured } from "./voice";
+import type { VoicesResponse } from "../shared/types";
 
 export { Campaign, Registry };
 
@@ -15,6 +17,8 @@ export interface Env {
   MOCK_LLM?: string;
   DM_MODEL?: string;
   REFEREE_MODEL?: string;
+  ELEVENLABS_API_KEY?: string;
+  ELEVENLABS_MOCK?: string;
 }
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I or O, so codes are not confused with 1 and 0
@@ -90,11 +94,48 @@ async function api(request: Request, env: Env, path: string[]): Promise<Response
   return json({ error: "Not found" }, 404);
 }
 
+async function voicesApi(env: Env): Promise<Response> {
+  const res: VoicesResponse = { configured: voiceConfigured(env), voices: [] };
+  if (res.configured) {
+    try {
+      [res.voices, res.credits] = await Promise.all([listVoices(env), credits(env)]);
+    } catch (e) {
+      res.error = (e as Error).message;
+    }
+  }
+  return json(res);
+}
+
+// GET /api/tts/CODE/MESSAGE_ID/SEGMENT -> MP3. The text comes from the campaign log, so this
+// endpoint can only ever speak what the DM wrote. Results are cached, so replays cost no credits.
+async function ttsApi(env: Env, ctx: ExecutionContext, parts: string[]): Promise<Response> {
+  if (!voiceConfigured(env)) return json({ error: "ElevenLabs is not set up (ELEVENLABS_API_KEY missing)." }, 503);
+  const [code, msgId, seg] = [parts[2]?.toUpperCase(), Number(parts[3]), Number(parts[4])];
+  if (!/^[A-Z]{4}$/.test(code ?? "") || !Number.isInteger(msgId) || !Number.isInteger(seg)) return json({ error: "Bad request" }, 400);
+  if (!(await registry(env).get(code))) return json({ error: "No campaign with that code." }, 404);
+  const voices = await listVoices(env);
+  if (!voices.length) return json({ error: "No ElevenLabs voices available." }, 502);
+  const part = await campaign(env, code).speechSegment(msgId, seg, voices);
+  if (!part) return json({ error: "Nothing to read." }, 404);
+  const key = new Request(`https://tts.cache/${code}/${msgId}/${seg}/${part.voiceId}`);
+  const cache = (caches as unknown as { default: Cache }).default; // Cloudflare's per-data-center cache
+  const cached = await cache.match(key);
+  if (cached) return cached;
+  const audio = await synthesize(env, part.voiceId, part.text);
+  if (!audio.ok || !audio.body) return audio;
+  const [a, b] = audio.body.tee();
+  const headers = { "content-type": "audio/mpeg", "cache-control": "public, max-age=604800" };
+  ctx.waitUntil(cache.put(key, new Response(b, { headers })));
+  return new Response(a, { headers });
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
     try {
+      if (parts[0] === "api" && parts[1] === "voices") return await voicesApi(env);
+      if (parts[0] === "api" && parts[1] === "tts") return await ttsApi(env, ctx, parts);
       if (parts[0] === "api" && parts[1] === "version") return json({ version: APP_VERSION });
       if (parts[0] === "api" && parts[1] === "campaigns") return await api(request, env, parts.slice(1));
       if (parts[0] === "ws" && parts[1]) {

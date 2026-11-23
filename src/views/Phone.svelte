@@ -143,7 +143,7 @@
 
     {#if tab === "play"}
       <section class="play">
-        <Feed log={v.log} pending={v.pending} busy={v.busy} myPlayerId={you.playerId} onUnsay={(id) => game.send({ t: "unsay", id })} />
+        <Feed log={v.log} pending={v.pending} busy={v.busy} npcs={v.npcs} myPlayerId={you.playerId} onUnsay={(id) => game.send({ t: "unsay", id })} />
 
         {#if !v.started}
           <div class="pad notice">

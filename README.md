@@ -14,6 +14,15 @@ A tabletop role-playing game for friends with an AI game master. One shared main
 - **Game modes**: narration, conversation with an NPC, and turn-based combat (initiative order, server-rolled enemy attacks).
 - **Fair play**: impossible claims are rejected, unknown items and used-up abilities refused by the server, consumables used up on the attempt, stat budget and PIN enforced server-side.
 - **Late joiners** are introduced into the scene by the DM; absent players' characters stay in the background.
+- **Voice**: the main screen can read the DM aloud: Off, Browser (free, built-in voice) or ElevenLabs. With ElevenLabs every NPC gets its own matching voice from your voice library; ▶ replays any DM response.
+
+## Voice (ElevenLabs)
+
+1. In ElevenLabs, create an API key (Developers → API Keys). Give it access to Text to Speech, Voices (read) and User (read, for the credit display).
+2. `npx wrangler secret put ELEVENLABS_API_KEY` and paste the key. No redeploy needed.
+3. On the main screen, set Voice to **ElevenLabs**. Pick a narrator or leave it on Automatic.
+
+How it works: the DM marks NPC dialogue as `{{npc-id: words}}`. When it creates an NPC it also describes the voice (gender, age, style), and the server picks the best match from your library once and keeps it. Speech uses the `eleven_flash_v2_5` model (0.5 credits per character, 32 languages incl. German). A typical 3-hour session is about 100k characters, so roughly 50k credits. Audio is cached, so ▶ replays are free. Browsers block sound until the page is clicked once; the main screen shows a button for that.
 
 ## Deploy (about 10 minutes)
 
@@ -50,7 +59,7 @@ For live frontend changes, also run `npm run dev:web` (Vite on port 5173, proxie
 Tests (with `npm run dev:worker` running in mock mode):
 
 ```bash
-npm run e2e                                    # 39 server checks: joining, rules, combat, rejoin, export…
+npm run e2e                                    # server checks: joining, rules, combat, voice, rejoin, export…
 CHROME=/path/to/chrome npx tsx tests/ui.ts     # browser walkthrough with screenshots in screenshots/
 npm run check                                  # TypeScript + Svelte checks
 ```

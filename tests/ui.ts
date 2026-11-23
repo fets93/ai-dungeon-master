@@ -33,7 +33,7 @@ async function waitText(p: Page, text: string, ms = 8000) {
 
 let browser: Awaited<ReturnType<typeof puppeteer.launch>>;
 async function main() {
-  browser = await puppeteer.launch({ executablePath: process.env.CHROME ?? "/usr/bin/google-chrome", args: ["--no-sandbox"] });
+  browser = await puppeteer.launch({ executablePath: process.env.CHROME ?? "/usr/bin/google-chrome", args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"] });
   const newPage = async (w: number, h: number, mobile: boolean) => {
     const ctx = await browser.createBrowserContext(); // separate localStorage per device
     const p = await ctx.newPage();
@@ -95,6 +95,12 @@ async function main() {
   await sleep(300);
   await shot(screen, "05-screen-lobby");
 
+  // Voice: switch the main screen to ElevenLabs before the story starts
+  const ttsRequests: string[] = [];
+  screen.on("request", (r) => r.url().includes("/api/tts/") && ttsRequests.push(r.url()));
+  await clickText(screen, "ElevenLabs");
+  await screen.waitForFunction(() => document.querySelector(".voice .seg button.on")?.textContent === "ElevenLabs");
+
   // Begin from the main screen
   await clickText(screen, "Begin the adventure");
   await waitText(screen, "Mother Kessa", 10000);
@@ -114,7 +120,10 @@ async function main() {
   await shot(screen, "07-screen-pending");
   await clickText(anna, "Send to DM");
   await waitText(screen, "Veyra rolls charm", 10000);
-  await sleep(600);
+  await sleep(1500);
+  const segs = new Set(ttsRequests.map((u) => u.split("/api/tts/")[1]));
+  console.log(segs.size >= 2 ? `PASS  main screen requested speech for ${segs.size} segments` : `FAIL  speech requests: ${[...segs].join(", ")}`);
+  console.log((await screen.evaluate(() => !!document.querySelector(".dm .line"))) ? "PASS  NPC dialogue rendered as a quoted line" : "FAIL  NPC dialogue not rendered");
   await shot(screen, "08-screen-after-turn");
   await shot(ben, "09-phone-after-turn");
 

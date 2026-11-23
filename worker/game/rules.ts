@@ -89,6 +89,11 @@ export function applyTool(s: GameState, name: string, input: Record<string, any>
         secrets: String(input.secrets ?? ""),
         attitude: String(input.attitude ?? "neutral"),
         memory: [],
+        voice: {
+          gender: ["male", "female", "neutral"].includes(input.voice_gender) ? input.voice_gender : "neutral",
+          age: ["young", "middle_aged", "old"].includes(input.voice_age) ? input.voice_age : "middle_aged",
+          style: String(input.voice_style ?? input.speech_style ?? "").slice(0, 80),
+        },
       });
       return ok(`Created NPC ${id}.`);
     }

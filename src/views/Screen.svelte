@@ -1,8 +1,11 @@
 <script lang="ts">
   import QRCode from "qrcode";
+  import { untrack } from "svelte";
   import { GameConnection } from "../lib/game.svelte";
   import Feed from "../components/Feed.svelte";
   import HealthBar from "../components/HealthBar.svelte";
+  import { Narrator } from "../lib/voice.svelte";
+  import type { VoiceMode, VoicesResponse } from "../../shared/types";
 
   let { code }: { code: string } = $props();
   // `code` never changes for a mounted view: App re-creates the view with {#key} when it does.
@@ -17,11 +20,75 @@
   QRCode.toDataURL(joinUrl, { margin: 1, width: 360, color: { dark: "#15120f", light: "#f0e7d8" } }).then((u) => (qr = u));
 
   const v = $derived(game.view);
+
+  // ---- Voice ----
+  let voices = $state<VoicesResponse | null>(null);
+  const loadVoices = () => fetch("/api/voices").then((r) => r.json()).then((d: VoicesResponse) => {
+    voices = d;
+    narrator.replayFallback = d.configured && !d.error ? "elevenlabs" : "browser";
+  }).catch(() => {});
+  // svelte-ignore state_referenced_locally
+  const narrator = new Narrator(code, () => game.view?.voiceMode ?? "off", () => game.view?.language ?? "English");
+  loadVoices();
+  $effect(() => () => narrator.stop());
+
+  // Read new DM messages as they arrive (never the history that was there when the screen opened).
+  let lastSeen: number | null = null;
+  $effect(() => {
+    const view = game.view;
+    if (!view) return;
+    const dm = view.log.filter((m) => m.speaker === "DM");
+    const maxId = dm.at(-1)?.id ?? 0;
+    if (lastSeen === null) {
+      lastSeen = maxId;
+      return;
+    }
+    const fresh = dm.filter((m) => m.id > lastSeen!);
+    untrack(() => fresh.forEach((m) => narrator.enqueue(m, view.npcs)));
+    lastSeen = Math.max(lastSeen, maxId);
+  });
+
+  function setMode(mode: VoiceMode) {
+    narrator.stop();
+    game.send({ t: "set_voice", mode });
+    if (mode === "elevenlabs") loadVoices(); // refresh credits
+  }
   const party = $derived(v ? v.characters.filter((c) => c.playerName) : []);
   const modeLabel = $derived(
     !v ? "" : v.mode === "combat" ? `Combat · round ${v.combat?.round ?? 1}` : v.mode === "conversation" ? "Conversation" : "Exploration",
   );
 </script>
+
+{#snippet voicePanel(v: NonNullable<typeof game.view>)}
+      <div class="card voice">
+  <div class="row">
+    <h3 class="grow">Voice</h3>
+    {#if narrator.speakingId !== null}<button class="ghost stop" onclick={() => narrator.stop()}>⏹ Stop</button>{/if}
+  </div>
+  <div class="row seg">
+    <button class:on={v.voiceMode === "off"} onclick={() => setMode("off")}>Off</button>
+    <button class:on={v.voiceMode === "browser"} onclick={() => setMode("browser")}>Browser</button>
+    <button
+      class:on={v.voiceMode === "elevenlabs"}
+      disabled={!voices?.configured}
+      title={voices?.configured ? "" : "Add ELEVENLABS_API_KEY on Cloudflare to enable"}
+      onclick={() => setMode("elevenlabs")}>ElevenLabs</button>
+  </div>
+  {#if v.voiceMode === "elevenlabs" && voices?.voices.length}
+    <label for="narrator">Narrator</label>
+    <select id="narrator" value={v.narratorVoiceId ?? ""} onchange={(e) => game.send({ t: "set_voice", narratorVoiceId: e.currentTarget.value || null })}>
+      <option value="">Automatic</option>
+      {#each voices.voices as vo}<option value={vo.id}>{vo.name}{vo.gender ? ` · ${vo.gender}` : ""}{vo.accent ? `, ${vo.accent}` : ""}</option>{/each}
+    </select>
+    <p class="small muted">NPCs get their own matching voices automatically.</p>
+  {/if}
+  {#if v.voiceMode === "elevenlabs" && voices?.credits}
+    <p class="small muted">ElevenLabs credits left: {(voices.credits.limit - voices.credits.used).toLocaleString()} of {voices.credits.limit.toLocaleString()}</p>
+  {/if}
+  {#if voices?.error}<p class="small bad">ElevenLabs: {voices.error}</p>{/if}
+  {#if narrator.error}<p class="small bad">{narrator.error}</p>{/if}
+</div>
+{/snippet}
 
 {#if game.notFound}
   <main class="center"><h1>No campaign with code {code}</h1><a href="#/">Back to the library</a></main>
@@ -58,6 +125,7 @@
         </button>
         <p class="small muted">The host's phone can start it too. Late players can still join after the start.</p>
       </div>
+      {@render voicePanel(v)}
     </div>
   </main>
 {:else}
@@ -71,7 +139,7 @@
         <span class="chip gold">{modeLabel}</span>
       </header>
       {#if v.scene}<p class="scene muted">{v.scene}</p>{/if}
-      <Feed log={v.log} pending={v.pending} busy={v.busy} big />
+      <Feed log={v.log} pending={v.pending} busy={v.busy} big npcs={v.npcs} speakingId={narrator.speakingId} onReplay={(m) => narrator.replay(m, v.npcs)} />
     </section>
 
     <aside>
@@ -82,6 +150,8 @@
           <div class="code">{v.code}</div>
         </div>
       </div>
+
+      {@render voicePanel(v)}
 
       {#if v.activeNpc && v.mode === "conversation"}
         <div class="card npc">
@@ -131,6 +201,9 @@
   </main>
 {/if}
 
+{#if narrator.needsGesture}
+  <button class="primary unlock" onclick={() => narrator.unlock()}>🔊 Click to enable sound</button>
+{/if}
 {#if game.error}<div class="toast" role="alert">{game.error}</div>{/if}
 
 <style>
@@ -296,5 +369,34 @@
   }
   .cost {
     margin-top: auto;
+  }
+  .voice .seg button {
+    flex: 1;
+    padding: 0.4rem;
+    font-size: 0.9rem;
+  }
+  .voice .seg button.on {
+    border-color: var(--gold);
+    background: var(--gold-soft);
+    color: var(--gold);
+  }
+  .voice h3 {
+    margin: 0;
+  }
+  .stop {
+    min-height: 32px;
+    padding: 0.2rem 0.5rem;
+  }
+  .bad {
+    color: var(--bad);
+  }
+  .unlock {
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    font-size: 1.2rem;
+    box-shadow: 0 6px 24px #000a;
   }
 </style>

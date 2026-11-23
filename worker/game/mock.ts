@@ -52,7 +52,8 @@ export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
   if (Array.isArray(last.content) && last.content.some((b: any) => b.type === "tool_result")) {
     const said = userText(p, "first").split("THE PLAYERS JUST SAID / DID")[1] ?? "";
     const who = [...said.matchAll(/\n(\w[\w' -]*?) \((?:said aloud|table talk)/g)].map((m) => m[1]);
-    return msg(p.model, [text(`[Mock DM] The rain hammers on the windows of the Drowned Lantern. ${who.length ? `${[...new Set(who)].join(" and ")} act, and the world answers exactly as the dice decided.` : "The night is young and the harbor is restless."} What do you do?`)], "end_turn");
+    const kessa = /mother-kessa/.test(userText(p, "first")) || p.messages.some((m: any) => JSON.stringify(m.content).includes("mother-kessa"));
+    return msg(p.model, [text(`[Mock DM] The rain hammers on the windows of the Drowned Lantern.${kessa ? " The old woman squints at you. {{mother-kessa: Nobody leaves the harbor tonight, dearies.}} She taps the counter." : ""} ${who.length ? `${[...new Set(who)].join(" and ")} act, and the world answers exactly as the dice decided.` : "The night is young and the harbor is restless."} What do you do?`)], "end_turn");
   }
 
   const t = userText(p);
@@ -61,7 +62,7 @@ export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
   if (t.includes("Open the adventure")) {
     calls.push(
       tool("set_scene", { scene: "A rain-soaked harbor tavern, the Drowned Lantern, at midnight." }),
-      tool("create_npc", { name: "Mother Kessa", personality: "shrewd, warm on the surface", speech_style: "slow, nautical slang", goals: "find who stole her ledger", knowledge: "the harbor master is corrupt", secrets: "she smuggles moonpearls", attitude: "curious" }),
+      tool("create_npc", { name: "Mother Kessa", personality: "shrewd, warm on the surface", speech_style: "slow, nautical slang", goals: "find who stole her ledger", knowledge: "the harbor master is corrupt", secrets: "she smuggles moonpearls", attitude: "curious", voice_gender: "female", voice_age: "old", voice_style: "raspy, slow" }),
       tool("set_active_npc", { id: "mother-kessa" }),
       tool("add_fact", { fact: "The harbor is closed by order of the harbor master." }),
     );

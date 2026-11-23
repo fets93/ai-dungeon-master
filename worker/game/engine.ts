@@ -5,6 +5,7 @@ import type { Llm } from "./llm";
 import { dmSystem, dmTurnContext, OPENING_INSTRUCTION, refereeContext, refereeSystem, storyRequest, storySystem, SUMMARY_SYSTEM } from "./prompts";
 import { advanceCombatTurn, applyTool, resolve } from "./rules";
 import { DM_TOOLS, REFEREE_TOOL, STORY_TOOL } from "./tools";
+import { plainSpeech } from "../../shared/speech";
 
 const CACHED_TOOLS: Anthropic.Tool[] = DM_TOOLS.map((t, i) => (i === DM_TOOLS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t));
 
@@ -162,7 +163,7 @@ async function maybeSummarize(s: GameState, llm: Llm) {
     messages: [
       {
         role: "user",
-        content: `Current summary:\n${s.summary || "(none)"}\n\nNew log entries:\n${chunk.map((m) => `${m.speaker}: ${m.text}`).join("\n")}\n\nWrite the updated summary.`,
+        content: `Current summary:\n${s.summary || "(none)"}\n\nNew log entries:\n${chunk.map((m) => `${m.speaker}: ${plainSpeech(m.text, s.npcs)}`).join("\n")}\n\nWrite the updated summary.`,
       },
     ],
   });

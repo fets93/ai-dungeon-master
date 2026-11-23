@@ -4,3 +4,7 @@ MOCK_LLM=1
 
 # Real DM locally: remove MOCK_LLM above and set your key.
 # ANTHROPIC_API_KEY=sk-ant-...
+
+# Fake ElevenLabs (fake voices, silent audio). For real voices set ELEVENLABS_API_KEY instead.
+ELEVENLABS_MOCK=1
+# ELEVENLABS_API_KEY=sk_...

@@ -36,6 +36,17 @@ export interface Character {
   present?: boolean; // owner is connected right now (set by the server)
 }
 
+export type VoiceGender = "male" | "female" | "neutral";
+export type VoiceAge = "young" | "middle_aged" | "old";
+export type VoiceMode = "off" | "browser" | "elevenlabs";
+
+export interface NpcVoice {
+  gender: VoiceGender;
+  age: VoiceAge;
+  style: string; // e.g. "slow and gravelly"
+  voiceId?: string; // ElevenLabs voice, picked once and kept
+}
+
 export interface Npc {
   id: string;
   name: string;
@@ -46,6 +57,7 @@ export interface Npc {
   secrets: string;
   attitude: string;
   memory: string[];
+  voice?: NpcVoice;
 }
 
 export interface Enemy {
@@ -103,6 +115,8 @@ export interface GameState {
   introductions: string[]; // character ids that joined mid-story and need an introduction
   nextMsgId: number;
   costUsd: number;
+  voiceMode: VoiceMode;
+  narratorVoiceId: string | null;
 }
 
 // Referee output for one player message.
@@ -159,9 +173,11 @@ export interface PublicView {
   log: Message[];
   pending: Message[];
   facts: string[];
-  npcs: { name: string; attitude: string }[];
+  npcs: { id: string; name: string; attitude: string; gender: VoiceGender; age: VoiceAge }[];
   summary: string;
   costUsd: number;
+  voiceMode: VoiceMode;
+  narratorVoiceId: string | null;
 }
 
 export interface YouView {
@@ -194,6 +210,7 @@ export type ClientMsg =
   | { t: "say"; text: string; aloud: boolean }
   | { t: "unsay"; id: number }
   | { t: "send_to_dm" }
+  | { t: "set_voice"; mode?: VoiceMode; narratorVoiceId?: string | null }
   | { t: "begin" };
 
 export type ServerMsg =
@@ -201,6 +218,23 @@ export type ServerMsg =
   | { t: "welcome"; token: string }
   | { t: "unknown_token" }
   | { t: "error"; message: string };
+
+// A voice from the ElevenLabs library, as the app uses it.
+export interface VoiceInfo {
+  id: string;
+  name: string;
+  gender: string;
+  age: string;
+  accent: string;
+  description: string;
+}
+
+export interface VoicesResponse {
+  configured: boolean;
+  voices: VoiceInfo[];
+  credits?: { used: number; limit: number };
+  error?: string;
+}
 
 export interface CampaignSummary {
   code: string;

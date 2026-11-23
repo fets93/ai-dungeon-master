@@ -126,6 +126,23 @@ async function main() {
   check(screen.view.title === "The Drowned Lantern", "AI generated the title from the prompt");
   check(screen.view.activeNpc?.name === "Mother Kessa" && screen.view.mode === "conversation", "DM created and activated an NPC");
 
+  // Voice: settings, NPC voice matching, speech endpoint
+  const vr = (await (await fetch(`${BASE}/api/voices`)).json()) as any;
+  check(vr.configured && vr.voices.length > 0 && vr.credits?.limit > 0, "voices endpoint lists the ElevenLabs library and credits");
+  b.send({ t: "set_voice", mode: "elevenlabs" });
+  await b.until(() => b.errors.some((e) => e.includes("voice")), "non-host voice error");
+  check(b.errors.some((e) => e.includes("voice")), "only screen/host can change the voice");
+  screen.send({ t: "set_voice", mode: "elevenlabs" });
+  await screen.until(() => screen.view.voiceMode === "elevenlabs", "voice mode");
+  check(screen.view.voiceMode === "elevenlabs", "screen switches voice mode to ElevenLabs");
+  const kessa = screen.view.npcs.find((n) => n.name === "Mother Kessa");
+  check(kessa?.gender === "female" && kessa?.age === "old", "DM gave the NPC voice traits");
+  const opening = screen.view.log.find((m) => m.speaker === "DM")!;
+  const tts0 = await fetch(`${BASE}/api/tts/${code}/${opening.id}/0`);
+  check(tts0.ok && tts0.headers.get("content-type") === "audio/mpeg", "speech endpoint returns MP3 for narration");
+  check((await fetch(`${BASE}/api/tts/${code}/99999/0`)).status === 404, "speech endpoint refuses unknown messages");
+  check((await fetch(`${BASE}/api/tts/${code}/${opening.id}/50`)).status === 404, "speech endpoint refuses unknown segments");
+
   // Conversation + table talk, then Send to DM
   a.send({ t: "say", text: "Who stole your ledger?", aloud: true });
   b.send({ t: "say", text: "don't mention the map", aloud: false });
@@ -138,6 +155,13 @@ async function main() {
   check(screen.view.pending.length === 0, "pending cleared after Send to DM");
   check(screen.view.log.some((m) => m.kind === "roll" && m.text.startsWith("Veyra rolls charm")), "persuasion rolled server-side");
   check(screen.view.log.at(-1)?.speaker === "DM", "DM narration logged");
+  const withLine = screen.view.log.at(-1)!;
+  check(withLine.text.includes("{{mother-kessa:"), "DM narration marks NPC dialogue");
+  const npcAudio = await fetch(`${BASE}/api/tts/${code}/${withLine.id}/1`);
+  check(npcAudio.ok, "speech endpoint reads the NPC line");
+  const exp1 = (await (await fetch(`${BASE}/api/campaigns/${code}/export`)).json()) as any;
+  const kv = exp1.npcs.find((n: any) => n.id === "mother-kessa")?.voice?.voiceId;
+  check(kv === "mock-old-woman" && kv !== exp1.narratorVoiceId, `NPC matched to a fitting voice (${kv}), distinct from narrator (${exp1.narratorVoiceId})`);
 
   // Impossible claim gets rejected
   a.send({ t: "say", text: "I find a key in my pocket", aloud: true });
