@@ -16,10 +16,14 @@
   $effect(() => () => game.destroy());
 
   let campaignTitle = $state("");
+  let campaignSummary = $state("");
   // svelte-ignore state_referenced_locally
   fetch(`/api/campaigns/${code}`)
     .then((r) => (r.ok ? r.json() : null))
-    .then((c) => (campaignTitle = c?.title ?? ""));
+    .then((c) => {
+      campaignTitle = c?.title ?? "";
+      campaignSummary = c?.summary ?? "";
+    });
 
   let name = $state(localStorage.getItem("aidm-name") ?? "");
   let creating = $state(false);
@@ -30,6 +34,7 @@
   let pin = $state("");
 
   const v = $derived(game.view);
+  const about = $derived(v?.blurb || v?.idea || "");
   const you = $derived(game.you);
   const me = $derived(you?.character ?? null);
   const claimable = $derived(v ? v.characters.filter((c) => !c.online) : []);
@@ -91,6 +96,7 @@
     <form class="pad center" onsubmit={join}>
       <p class="muted small">Joining <span class="code">{code}</span></p>
       <h1>{campaignTitle || "AI Dungeon Master"}</h1>
+      {#if campaignSummary}<p class="about">{campaignSummary}</p>{/if}
       <label for="pname">Your name</label>
       <input id="pname" bind:value={name} maxlength="24" placeholder="Steffen" autocomplete="nickname" />
       <button class="primary wide" disabled={!name.trim() || !game.connected}>Join</button>
@@ -98,12 +104,13 @@
   {:else if !v || !you}
     <div class="pad center"><p class="muted">Connecting…</p></div>
   {:else if creating}
-    <div class="pad scroll"><CharacterForm onSubmit={create} onCancel={() => (creating = false)} /></div>
+    <div class="pad scroll"><CharacterForm onSubmit={create} onCancel={() => (creating = false)} {about} /></div>
   {:else if !me && !you.spectator}
     <!-- Step 2: pick a role -->
     <div class="pad scroll">
       <p class="muted small">Hi {you.name}! {v.started ? "The story is already running." : ""}</p>
       <h1>{v.title}</h1>
+      {#if about}<p class="about">{about}</p>{:else if v.busy}<p class="muted small"><span class="thinking">The DM is writing the story</span></p>{/if}
       <button class="primary wide" onclick={() => (creating = true)}>Create a new character</button>
 
       {#if claimable.length}
@@ -205,6 +212,7 @@
     {:else}
       <section class="pad scroll journal">
         <h2>Journal</h2>
+        {#if about}<h3>About this campaign</h3><p class="serif">{about}</p>{/if}
         {#if v.scene}<h3>Where you are</h3><p class="serif">{v.scene}</p>{/if}
         {#if v.summary}<h3>The story so far</h3><p class="serif">{v.summary}</p>{/if}
         <h3>People you've met</h3>
@@ -352,6 +360,11 @@
   }
   .actions {
     margin-top: 1.5rem;
+  }
+  .about {
+    font-family: var(--serif);
+    color: #d9cfbf;
+    line-height: 1.5;
   }
   .serif {
     font-family: var(--serif);

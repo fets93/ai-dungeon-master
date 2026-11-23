@@ -117,8 +117,9 @@ export async function generateStory(s: GameState, llm: Llm) {
     messages: [{ role: "user", content: storyRequest(s) }],
   });
   const block = msg.content.find((b) => b.type === "tool_use") as Anthropic.ToolUseBlock | undefined;
-  const input = (block?.input ?? {}) as { title?: string; story_arc?: string };
+  const input = (block?.input ?? {}) as { title?: string; story_arc?: string; blurb?: string };
   if (input.story_arc) s.storyArc = input.story_arc;
+  if (input.blurb) s.blurb = input.blurb.slice(0, 600);
   if (input.title && (!s.config.title || s.config.title === "New campaign")) s.config.title = input.title.slice(0, 80);
 }
 

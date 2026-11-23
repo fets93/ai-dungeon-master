@@ -76,6 +76,11 @@ async function main() {
   screen.send({ t: "hello", role: "screen" });
   await screen.until(() => !!screen.last, "screen state");
   check(screen.view.characters.filter((c) => c.readyMade).length === 3, "3 ready-made characters available");
+  await screen.until(() => !!screen.view.blurb && !screen.view.busy, "story prepared", 8000);
+  check(screen.view.title === "The Drowned Lantern" && screen.view.blurb.includes("Saltmere"), "story and blurb written when the main screen opens");
+  check(!JSON.stringify(screen.last).includes("cult"), "secret story arc never reaches clients");
+  const card = (await (await fetch(`${BASE}/api/campaigns/${code}`)).json()) as any;
+  check(card.summary.includes("Saltmere") && !card.summary.includes("cult"), "library card shows the spoiler-free blurb");
 
   const a = new Client("anna");
   await a.connect(code);

@@ -129,7 +129,7 @@ Respond as the DM now.`;
 export const OPENING_INSTRUCTION = `Open the adventure. Call set_scene first. Introduce the situation in a way that gives every present character a reason to be there, and end with a clear hook. Create any NPC who speaks.`;
 
 export function storySystem(): string {
-  return `You design campaigns for a tabletop role-playing game played by friends with an AI game master. Return a title and a high-level story arc via the tool: the setting in two sentences, the inciting problem, 3-4 likely stages, a central antagonist or force with a motive, and an open ending the players decide. Keep it under 180 words. Leave room for improvisation; do not script player choices.`;
+  return `You design campaigns for a tabletop role-playing game played by friends with an AI game master. Return a title and a high-level story arc via the tool: the setting in two sentences, the inciting problem, 3-4 likely stages, a central antagonist or force with a motive, and an open ending the players decide. Keep it under 180 words. Leave room for improvisation; do not script player choices. Also write a short spoiler-free blurb that tells players what kind of characters would fit, without revealing anything from the arc's secrets.`;
 }
 
 export function storyRequest(s: GameState): string {

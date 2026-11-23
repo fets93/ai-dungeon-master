@@ -28,7 +28,7 @@ import {
 } from "../shared/types";
 import { parseSpeech, plainSpeech } from "../shared/speech";
 import { matchVoice, pickNarrator } from "./voice";
-import { opening, sendToDm } from "./game/engine";
+import { generateStory, opening, sendToDm } from "./game/engine";
 import { makeLlm } from "./game/llm";
 import { premadeCharacters } from "./game/premades";
 import { activeCombatantId } from "./game/rules";
@@ -51,6 +51,7 @@ export class Campaign extends DurableObject<Env> {
         // Fields added after the first release: fill defaults for older saves.
         this.s.voiceMode ??= "off";
         this.s.narratorVoiceId ??= null;
+        this.s.blurb ??= "";
       }
     });
   }
@@ -63,6 +64,7 @@ export class Campaign extends DurableObject<Env> {
       code,
       config,
       storyArc: "",
+      blurb: "",
       started: false,
       createdAt: now,
       lastPlayed: now,
@@ -198,7 +200,11 @@ export class Campaign extends DurableObject<Env> {
       case "hello": {
         if (msg.role === "screen") {
           ws.serializeAttachment({ role: "screen" } satisfies Attachment);
-          return this.broadcast();
+          this.broadcast();
+          // A new campaign gets its story (title, blurb, secret arc) as soon as the main screen opens it,
+          // so players know what they're making characters for.
+          if (!s.storyArc && !s.started && !this.busy) await this.runLlm(() => generateStory(s, this.llm()));
+          return;
         }
         const p = msg.token ? s.players.find((x) => x.token === msg.token) : undefined;
         if (!p) return this.send(ws, { t: "unknown_token" });
@@ -469,6 +475,9 @@ export class Campaign extends DurableObject<Env> {
     return {
       code: s.code,
       title: s.config.title,
+      blurb: s.blurb,
+      idea: s.config.prompt,
+      tone: s.config.tone,
       language: s.config.language,
       strictness: s.config.strictness,
       started: s.started,
@@ -543,7 +552,7 @@ export class Campaign extends DurableObject<Env> {
       title: s.config.title,
       started: s.started,
       party: s.characters.filter((c) => c.ownerId || (!c.readyMade && s.started)).map((c) => c.name),
-      summary: s.summary || plainSpeech([...s.log].reverse().find((m) => m.speaker === "DM")?.text ?? s.storyArc, s.npcs).slice(0, 220),
+      summary: s.summary || plainSpeech([...s.log].reverse().find((m) => m.speaker === "DM")?.text ?? (s.blurb || s.config.prompt), s.npcs).slice(0, 220),
       lastPlayed: s.lastPlayed,
       createdAt: s.createdAt,
     };

@@ -18,7 +18,7 @@
   import Avatar from "./Avatar.svelte";
   import { resizeToAvatar } from "../lib/avatar";
 
-  let { onSubmit, onCancel }: { onSubmit: (c: NewCharacterInput) => void; onCancel: () => void } = $props();
+  let { onSubmit, onCancel, about = "" }: { onSubmit: (c: NewCharacterInput) => void; onCancel: () => void; about?: string } = $props();
 
   const STAT_HELP: Record<Stat, string> = {
     strength: "lifting, hitting, breaking",
@@ -83,6 +83,7 @@
 
 <form onsubmit={submit}>
   <h2>New character</h2>
+  {#if about}<p class="about small">{about}</p>{/if}
 
   <label for="cname">Name</label>
   <input id="cname" bind:value={name} maxlength="24" placeholder="Veyra" autocomplete="off" />
@@ -224,6 +225,13 @@
   }
   .item {
     margin-bottom: 0.35rem;
+  }
+  .about {
+    font-family: var(--serif);
+    color: #d9cfbf;
+    border-left: 2px solid var(--gold);
+    padding-left: 0.75rem;
+    margin: 0 0 0.5rem;
   }
   .photo {
     margin-top: 0.75rem;

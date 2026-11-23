@@ -105,6 +105,20 @@
   <main class="lobby">
     <a class="back small" href="#/">← Library</a>
     <h1>{v.title}</h1>
+    <div class="about">
+      {#if v.blurb}
+        <p class="blurb">{v.blurb}</p>
+      {:else if v.busy}
+        <p class="blurb muted"><span class="thinking">The DM is writing the story</span></p>
+      {:else if v.idea}
+        <p class="blurb">{v.idea}</p>
+      {/if}
+      <div class="row wrap">
+        <span class="chip">{v.tone}</span>
+        <span class="chip">{v.strictness}</span>
+        <span class="chip">{v.language}</span>
+      </div>
+    </div>
     <div class="lobby-grid">
       <div class="card qrcard">
         {#if qr}<img src={qr} alt="QR code to join" />{/if}
@@ -118,7 +132,7 @@
         {/if}
         {#each party as c (c.id)}
           <div class="member">
-            <Avatar src={avatarUrl(code, c)} name={c.name} size={48} />
+            <Avatar src={avatarUrl(code, c)} name={c.name} size={64} />
             <span class="dot" class:on={c.online}></span>
             <div class="grow">
               <b>{c.name}</b> <span class="muted small">· {c.playerName}</span>
@@ -233,7 +247,17 @@
   }
   .lobby h1 {
     font-size: clamp(2rem, 4vw, 3.2rem);
-    margin: 0.5rem 0 1.5rem;
+    margin: 0.5rem 0 0.75rem;
+  }
+  .about {
+    margin-bottom: 1.5rem;
+    max-width: 60rem;
+  }
+  .blurb {
+    font-family: var(--serif);
+    font-size: clamp(1.15rem, 1.6vw, 1.45rem);
+    line-height: 1.55;
+    margin: 0 0 0.75rem;
   }
   .lobby-grid {
     display: grid;

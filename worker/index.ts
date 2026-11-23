@@ -89,7 +89,7 @@ async function api(request: Request, env: Env, path: string[]): Promise<Response
     const old = await campaign(env, code).exportState();
     if (!old) return json({ error: "Campaign is empty." }, 404);
     const newC = await newCode(env);
-    const summary = await campaign(env, newC).init(newC, old.config, { storyArc: old.storyArc });
+    const summary = await campaign(env, newC).init(newC, old.config, { storyArc: old.storyArc, blurb: old.blurb ?? "" });
     await registry(env).upsert(summary);
     return json({ code: newC }, 201);
   }

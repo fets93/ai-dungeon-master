@@ -102,7 +102,11 @@ export const STORY_TOOL: Tool = {
   description: "Return the campaign title and high-level story arc.",
   input_schema: {
     type: "object",
-    properties: { title: str("Short evocative title"), story_arc: str("High-level arc, under 180 words") },
-    required: ["title", "story_arc"],
+    properties: {
+      title: str("Short evocative title"),
+      blurb: str("2-3 sentences for the PLAYERS before they make characters: the setting, the mood and the opening situation. No secrets, twists, villains' identities or plans."),
+      story_arc: str("High-level arc for the DM only, under 180 words"),
+    },
+    required: ["title", "blurb", "story_arc"],
   },
 };

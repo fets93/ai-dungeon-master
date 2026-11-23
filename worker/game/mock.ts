@@ -27,7 +27,7 @@ function userText(p: CreateParams, which: "first" | "last" = "last"): string {
 export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
   if (role === "summary") return msg(p.model, [text("Mock summary: the party has been busy in the harbor.")], "end_turn");
   if (role === "story")
-    return msg(p.model, [tool("set_story", { title: "The Drowned Lantern", story_arc: "Ships vanish on calm nights in the harbor city of Saltmere. A stolen ledger leads through smugglers and a corrupt harbor master to a drowned temple, where a cult wants to wake something old. The players decide what to do with what sleeps there." })], "tool_use");
+    return msg(p.model, [tool("set_story", { title: "The Drowned Lantern", blurb: "Saltmere is a rain-soaked harbor city where ships vanish on calm nights. You meet in the Drowned Lantern tavern on the night the harbor is closed. Sailors, smugglers and odd folk welcome.", story_arc: "Ships vanish on calm nights in the harbor city of Saltmere. A stolen ledger leads through smugglers and a corrupt harbor master to a drowned temple, where a cult wants to wake something old. The players decide what to do with what sleeps there." })], "tool_use");
 
   if (role === "referee") {
     const lines = userText(p).split("MESSAGES TO RULE ON:")[1].trim().split("\n");

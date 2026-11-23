@@ -97,6 +97,7 @@ export interface GameState {
   code: string;
   config: CampaignConfig;
   storyArc: string;
+  blurb: string; // spoiler-free description for the players
   started: boolean;
   createdAt: number;
   lastPlayed: number;
@@ -161,6 +162,9 @@ export interface PublicCharacter {
 export interface PublicView {
   code: string;
   title: string;
+  blurb: string;
+  idea: string; // the group's own story idea, if any
+  tone: string;
   language: string;
   strictness: Strictness;
   started: boolean;
