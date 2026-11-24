@@ -10,6 +10,9 @@
   let newFact = $state("");
   let editingFacts = $state(false);
   let pinEdit = $state(false);
+  let styleEdit = $state(false);
+  // svelte-ignore state_referenced_locally
+  let styleNote = $state(v.styleNote);
   let newPin = $state("");
 
   function undo() {
@@ -78,6 +81,22 @@
     {/if}
 
     <div class="row facthead">
+      <span class="lbl grow">Narration: {v.style}{v.styleNote ? " + notes" : ""}</span>
+      <button class="ghost tiny" onclick={() => { styleEdit = !styleEdit; styleNote = v.styleNote; }}>{styleEdit ? "Done" : "Change"}</button>
+    </div>
+    {#if styleEdit}
+      <div class="row seg">
+        {#each ["short", "balanced", "rich"] as const as st}
+          <button class:on={v.style === st} onclick={() => game.send({ t: "set_style", style: st, styleNote })}>{st}</button>
+        {/each}
+      </div>
+      <form class="row" onsubmit={(e) => { e.preventDefault(); game.send({ t: "set_style", style: v.style, styleNote }); }}>
+        <input bind:value={styleNote} maxlength="300" placeholder="Style wishes, e.g. noir, lots of dialogue" />
+        <button>Save</button>
+      </form>
+    {/if}
+
+    <div class="row facthead">
       <span class="lbl grow">Host PIN: {v.hasHostPin ? "on" : "off"}</span>
       <button class="ghost tiny" onclick={() => (pinEdit = !pinEdit)}>{pinEdit ? "Cancel" : v.hasHostPin ? "Change" : "Set"}</button>
     </div>
@@ -118,6 +137,21 @@
   }
   .factbtn {
     margin-top: 0.6rem;
+  }
+  .seg {
+    margin-top: 0.4rem;
+  }
+  .seg button {
+    flex: 1;
+    min-height: 34px;
+    padding: 0.2rem;
+    text-transform: capitalize;
+    font-size: 0.9rem;
+  }
+  .seg button.on {
+    border-color: var(--gold);
+    background: var(--gold-soft);
+    color: var(--gold);
   }
   .facts {
     list-style: none;

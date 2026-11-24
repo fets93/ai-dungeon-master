@@ -344,14 +344,22 @@ export class Campaign extends DurableObject<Env> {
         const text = String(msg.text ?? "").trim().slice(0, 600);
         if (!text) return;
         const whisper = !!msg.whisper;
+        let ability: string | undefined;
+        if (msg.ability) {
+          const ab = c.abilities.find((a) => a.name === msg.ability);
+          if (!ab) throw new Error("Your character doesn't have that ability.");
+          if (ab.usesPerRest > 0 && ab.usesLeft <= 0) throw new Error(`${ab.name} is used up until the next rest.`);
+          ability = ab.name;
+        }
         const active = activeCombatantId(s);
         if (active && active !== c.id && (msg.aloud || whisper)) throw new Error("It's not your turn. Table talk is still allowed.");
         s.pending.push({
           id: s.nextMsgId++,
           speaker: c.name,
           playerId: p.id,
-          text,
+          text: ability ? `[${ability}] ${text}` : text,
           aloud: !!msg.aloud && !whisper,
+          ...(ability ? { ability } : {}),
           ...(whisper ? { whisper: true, whisperTo: c.id } : {}),
         });
         await this.save();
@@ -405,6 +413,14 @@ export class Campaign extends DurableObject<Env> {
         return this.broadcast();
       }
 
+      case "set_style": {
+        needControl();
+        s.config.style = ["short", "balanced", "rich"].includes(msg.style) ? msg.style : "balanced";
+        s.config.styleNote = String(msg.styleNote ?? "").trim().slice(0, 300);
+        await this.save();
+        return this.broadcast();
+      }
+
       case "set_paused": {
         needControl();
         s.paused = !!msg.paused;
@@ -449,7 +465,7 @@ export class Campaign extends DurableObject<Env> {
           } else {
             cur.pending = later;
             await this.snapshot("turn", snap.batch);
-            await sendToDm(cur, this.llm(), snap.batch);
+            await sendToDm(cur, this.llm(), snap.batch, () => this.broadcast());
           }
         }, snap.kind !== "opening");
       }
@@ -475,7 +491,7 @@ export class Campaign extends DurableObject<Env> {
           s.pending = [];
           await this.snapshot("turn", batch);
           try {
-            await sendToDm(s, this.llm(), batch);
+            await sendToDm(s, this.llm(), batch, () => this.broadcast());
           } catch (e) {
             s.pending = [...batch, ...s.pending]; // put messages back so nothing is lost
             await this.dropSnapshot();
@@ -658,6 +674,8 @@ export class Campaign extends DurableObject<Env> {
       blurb: s.blurb,
       idea: s.config.prompt,
       tone: s.config.tone,
+      style: s.config.style ?? "balanced",
+      styleNote: s.config.styleNote ?? "",
       language: s.config.language,
       strictness: s.config.strictness,
       started: s.started,

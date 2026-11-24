@@ -15,6 +15,9 @@ A tabletop role-playing game for friends with an AI game master. One shared main
 - **Game modes**: narration, conversation with an NPC, and turn-based combat (initiative order, server-rolled enemy attacks).
 - **Fair play**: impossible claims are rejected, unknown items and used-up abilities refused by the server, consumables used up on the attempt, stat budget and PIN enforced server-side.
 - **Late joiners** are introduced into the scene by the DM; absent players' characters stay in the background.
+- **Use ability button**: pick one of your character's abilities (uses left shown), say how or at whom, and it goes into the conversation; the server always counts the use.
+- **Dice animation**: each roll tumbles and lands on the real result on the roller's phone (and on the target's phone for enemy attacks) and in the corner of the main screen, before the DM has finished writing. Rolls use cryptographic randomness.
+- **Narration style**: Short, Balanced or Rich, plus free-text style wishes; set at creation, changeable in the Host panel.
 - **Host controls**: undo or retry the DM's last turn, pause, "Previously on…" recap (suggested automatically after a break), edit the established facts, optional host PIN that locks the main screen's controls. On the main screen and on the host's phone (Journal tab).
 - **Whispers**: secret actions to the DM. Referee and dice still apply, but the action, its roll and the DM's private answer appear only on that player's phone; the public narration shows only what others notice.
 - **Voice**: the main screen can read the DM aloud: Off, Browser (free, built-in voice) or ElevenLabs. With ElevenLabs every NPC gets its own matching voice from your voice library; ▶ replays any DM response.

@@ -7,6 +7,8 @@
   import Avatar from "../components/Avatar.svelte";
   import Invite from "../components/Invite.svelte";
   import HostControls from "../components/HostControls.svelte";
+  import DiceRoll from "../components/DiceRoll.svelte";
+  import { DiceQueue } from "../lib/dice.svelte";
   import { avatarUrl } from "../../shared/types";
   import type { NewCharacterInput, PublicCharacter } from "../../shared/types";
 
@@ -72,13 +74,24 @@
     creating = false;
   }
 
+  // Use ability: pick one of your abilities, then say how or at whom.
+  let ability = $state<string | null>(null);
+  let pickingAbility = $state(false);
+
   function say(e?: Event) {
     e?.preventDefault();
-    const t = text.trim();
+    const t = text.trim() || (ability ? "uses it" : "");
     if (!t) return;
-    game.send({ t: "say", text: t, aloud: channel === "aloud", whisper: channel === "whisper" });
+    game.send({ t: "say", text: t, aloud: channel === "aloud", whisper: channel === "whisper", ...(ability ? { ability } : {}) });
     text = "";
+    ability = null;
   }
+
+  // My own rolls, and enemy attacks aimed at me, get the dice animation.
+  const dice = new DiceQueue((r) => !!me && (r.characterId === me.id || r.targetId === me.id));
+  $effect(() => {
+    if (v) dice.feed(v.log);
+  });
 
   function onKey(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) say(e);
@@ -178,10 +191,33 @@
         {:else}
           <form class="composer" onsubmit={say}>
             {#if v.paused}<p class="paused small">⏸ The game is paused. You can still write; sending resumes when the host continues.</p>{/if}
+            {#if pickingAbility && me}
+              <div class="abilities">
+                {#each me.abilities as a}
+                  <button
+                    type="button"
+                    disabled={a.usesPerRest > 0 && a.usesLeft <= 0}
+                    onclick={() => { ability = a.name; pickingAbility = false; }}>
+                    <b>{a.name}</b>
+                    <span class="small muted">{a.usesPerRest > 0 ? `${a.usesLeft}/${a.usesPerRest} left` : "unlimited"}</span>
+                  </button>
+                {:else}
+                  <p class="small muted">Your character has no abilities.</p>
+                {/each}
+              </div>
+            {/if}
             <div class="row toggle">
               <button type="button" class="aloud" class:on={channel === "aloud"} disabled={!myTurn} onclick={() => (channel = "aloud")}>🗣 Aloud</button>
               <button type="button" class="talk" class:on={channel === "talk"} onclick={() => (channel = "talk")}>💬 Table talk</button>
               <button type="button" class="whisper" class:on={channel === "whisper"} disabled={!myTurn} onclick={() => (channel = "whisper")}>🕵 Whisper</button>
+            </div>
+            <div class="row abilityrow">
+              {#if ability}
+                <span class="chip gold">✨ {ability}</span>
+                <button type="button" class="ghost tiny" aria-label="Cancel ability" onclick={() => (ability = null)}>×</button>
+              {:else}
+                <button type="button" class="ghost tiny usebtn" disabled={!myTurn || !me?.abilities.length} onclick={() => (pickingAbility = !pickingAbility)}>✨ Use ability</button>
+              {/if}
             </div>
             <div class="row">
               <textarea
@@ -189,9 +225,9 @@
                 onkeydown={onKey}
                 rows="2"
                 maxlength="600"
-                placeholder={channel === "aloud" ? `What does ${me?.name} say or do?` : channel === "talk" ? "Only the table hears this, not the NPCs" : "A secret action: only the DM sees this"}
+                placeholder={ability ? `How or at whom do you use ${ability}?` : channel === "aloud" ? `What does ${me?.name} say or do?` : channel === "talk" ? "Only the table hears this, not the NPCs" : "A secret action: only the DM sees this"}
               ></textarea>
-              <button class="say" disabled={!text.trim()}>Add</button>
+              <button class="say" disabled={!text.trim() && !ability}>Add</button>
             </div>
             <button type="button" class="primary wide send" disabled={!canSend || v.paused} onclick={() => game.send({ t: "send_to_dm" })}>
               {#if v.busy}<span class="thinking">DM is thinking</span>
@@ -242,6 +278,9 @@
     </nav>
   {/if}
 
+  {#if dice.current}
+    {#key dice.current}<DiceRoll roll={dice.current} onDone={dice.next} />{/key}
+  {/if}
   {#if game.error}<div class="toast" role="alert">{game.error}</div>{/if}
 </div>
 
@@ -345,6 +384,31 @@
     border-color: #b48fd6;
     background: rgba(180, 143, 214, 0.15);
     color: #cfb3ec;
+  }
+  .abilities {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  .abilities button {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: left;
+    gap: 0.5rem;
+  }
+  .abilityrow {
+    min-height: 32px;
+  }
+  .tiny {
+    min-height: 32px;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.9rem;
+  }
+  .usebtn {
+    color: var(--gold);
   }
   .paused {
     margin: 0;

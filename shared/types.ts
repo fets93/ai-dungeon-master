@@ -76,6 +76,19 @@ export interface Message {
   kind?: "roll" | "rejected" | "event" | "join" | "recap" | "whisper";
   whisper?: boolean; // a player's secret action, only the DM and that player see it
   whisperTo?: string; // character id: message visible only to that character's player
+  ability?: string; // the player used the "Use ability" button with this ability
+  roll?: RollData; // structured dice result, for the dice animation
+}
+
+export interface RollData {
+  characterId: string | null; // the character who rolled, or null for an enemy roll
+  targetId?: string | null; // the character an enemy attack is aimed at
+  label: string; // "Veyra: agility" or "Dock Thug attacks Veyra"
+  d20: number;
+  mod: number;
+  total: number;
+  dc: number;
+  success: boolean;
 }
 
 export interface Player {
@@ -87,7 +100,11 @@ export interface Player {
   isHost: boolean;
 }
 
+export type NarrationStyle = "short" | "balanced" | "rich";
+
 export interface CampaignConfig {
+  style?: NarrationStyle; // how long and detailed the DM writes
+  styleNote?: string; // free-text style wishes from the group
   title: string;
   prompt: string; // the group's rough story idea; empty = let the AI invent one
   language: string;
@@ -144,6 +161,7 @@ export interface ResolvedAction {
   ruling: Ruling;
   result: "no_action" | "auto_success" | "rejected" | "success" | "failure";
   rollText?: string;
+  roll?: RollData;
   note?: string;
 }
 
@@ -169,6 +187,8 @@ export interface PublicView {
   blurb: string;
   idea: string; // the group's own story idea, if any
   tone: string;
+  style: NarrationStyle;
+  styleNote: string;
   language: string;
   strictness: Strictness;
   started: boolean;
@@ -225,7 +245,8 @@ export type ClientMsg =
   | { t: "update_backstory"; text: string }
   | { t: "set_avatar"; dataUrl: string | null }
   | { t: "remove_character"; characterId: string; deleteIt: boolean }
-  | { t: "say"; text: string; aloud: boolean; whisper?: boolean }
+  | { t: "say"; text: string; aloud: boolean; whisper?: boolean; ability?: string }
+  | { t: "set_style"; style: NarrationStyle; styleNote: string }
   | { t: "unlock"; pin: string }
   | { t: "set_host_pin"; pin: string | null }
   | { t: "undo_turn" }

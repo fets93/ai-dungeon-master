@@ -20,12 +20,16 @@ class Client {
   last: Extract<ServerMsg, { t: "state" }> | null = null;
   token = "";
   errors: string[] = [];
+  history: Extract<ServerMsg, { t: "state" }>[] = [];
   constructor(public label: string) {}
   async connect(code: string) {
     this.ws = new WebSocket(`${WS_BASE}/ws/${code}`);
     this.ws.on("message", (d) => {
       const m = JSON.parse(String(d)) as ServerMsg;
-      if (m.t === "state") this.last = m;
+      if (m.t === "state") {
+        this.last = m;
+        this.history.push(m);
+      }
       if (m.t === "welcome") this.token = m.token;
       if (m.t === "error") this.errors.push(m.message);
     });
@@ -263,6 +267,37 @@ async function main() {
   check(screen.view.canControl, "the right PIN unlocks the main screen");
   a.send({ t: "set_host_pin", pin: null });
   await screen.until(() => !screen.view.hasHostPin, "pin off");
+
+  // Use ability button
+  a.send({ t: "say", text: "to dodge the falling beam", aloud: true, ability: "Lucky Break" });
+  await screen.until(() => screen.view.pending.length === 1, "ability pending");
+  check(screen.view.pending[0]?.text === "[Lucky Break] to dodge the falling beam", "ability message is added to the conversation");
+  a.send({ t: "send_to_dm" });
+  await a.until(() => !a.view.busy && a.view.pending.length === 0 && a.you?.character?.abilities[0].usesLeft === 0, "ability used", 8000);
+  check(a.you?.character?.abilities[0].usesLeft === 0, "using an ability spends one use");
+  a.send({ t: "say", text: "again", aloud: true, ability: "Lucky Break" });
+  await a.until(() => a.errors.some((e) => e.includes("used up")), "used up");
+  check(a.errors.some((e) => e.includes("used up")), "a used-up ability can't be picked");
+  a.send({ t: "say", text: "x", aloud: true, ability: "Fireball" });
+  await a.until(() => a.errors.some((e) => e.includes("doesn't have")), "unknown ability");
+  check(a.errors.some((e) => e.includes("doesn't have")), "unknown abilities are refused");
+
+  // Dice: structured rolls, shown before the DM has finished writing
+  const histStart = b.history.length;
+  b.send({ t: "say", text: "I persuade her to open the cellar", aloud: true });
+  b.send({ t: "send_to_dm" });
+  await b.until(() => b.history.length > histStart && !b.view.busy && b.view.pending.length === 0, "dice turn", 8000);
+  const rollMsg = b.view.log.filter((m) => m.roll).at(-1)!;
+  check(!!rollMsg.roll && rollMsg.roll.d20 >= 1 && rollMsg.roll.d20 <= 20 && rollMsg.roll.characterId === b.you!.character!.id, "rolls carry structured dice data for the animation");
+  check(b.history.slice(histStart).some((h) => h.view.busy && h.view.log.some((m) => m.id === rollMsg.id)), "dice result reaches the phones while the DM is still writing");
+
+  // Narration style
+  screen.send({ t: "set_style", style: "short", styleNote: "noir, lots of dialogue" });
+  await screen.until(() => screen.view.style === "short", "style");
+  check(screen.view.style === "short" && screen.view.styleNote === "noir, lots of dialogue", "narration style can be changed during play");
+  b.send({ t: "set_style", style: "rich", styleNote: "" });
+  await b.until(() => b.errors.some((e) => e.includes("host")), "guest style");
+  check(screen.view.style === "short", "only the host can change the style");
 
   // Combat: turn order is enforced
   a.send({ t: "say", text: "I attack the thug", aloud: true });

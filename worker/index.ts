@@ -42,6 +42,8 @@ function readConfig(body: any): CampaignConfig {
     language: String(body?.language ?? "").trim().slice(0, 30) || "English",
     tone: String(body?.tone ?? "").trim().slice(0, 120) || "adventurous with some humor",
     strictness,
+    style: ["short", "balanced", "rich"].includes(body?.style) ? body.style : "balanced",
+    styleNote: String(body?.styleNote ?? "").trim().slice(0, 300),
   };
 }
 

@@ -67,17 +67,24 @@ async function runReferee(s: GameState, llm: Llm, batch: Message[]): Promise<Rul
     rulings.push({
       messageIndex: idx,
       character: batch[idx].speaker, // trust the server's speaker, not the model's
-      verdict: ["no_action", "trivial", "impossible", "needs_roll"].includes(r.verdict) ? r.verdict : "no_action",
+      verdict: ((v: string) => (batch[idx].ability && v === "no_action" ? "trivial" : v))(
+        ["no_action", "trivial", "impossible", "needs_roll"].includes(r.verdict) ? r.verdict : "no_action",
+      ) as Ruling["verdict"],
       reason: r.reason ?? "",
       stat: r.stat,
       dc: r.dc,
-      usesAbility: r.uses_ability || undefined,
+      usesAbility: batch[idx].ability || r.uses_ability || undefined, // the Use ability button always counts
       usesItem: r.uses_item || undefined,
       consumesItem: !!r.consumes_item,
       successOutcome: r.success_outcome,
       failureConsequence: r.failure_consequence,
     });
   }
+  // An ability used with the button is always an action, even if the referee skipped it.
+  batch.forEach((m, i) => {
+    if (m.ability && !seen.has(i))
+      rulings.push({ messageIndex: i, character: m.speaker, verdict: "trivial", reason: `Uses ${m.ability}.`, usesAbility: m.ability });
+  });
   return [...rulings, ...tableTalk].sort((a, b) => a.messageIndex - b.messageIndex);
 }
 
@@ -87,6 +94,7 @@ function describeResolved(batch: Message[], resolved: ResolvedAction[]): string 
       const head = m.whisper
         ? `${m.speaker} (WHISPERED to the DM, a secret action: only ${m.speaker} knows; others notice only what the outcome makes visible): ${m.text}`
         : `${m.speaker}${m.aloud ? " (said aloud)" : " (table talk, NPCs did not hear this)"}: ${m.text}`;
+      // (abilities are named in the message text, e.g. "[Call the Squall] at the thug")
       const r = resolved.find((x) => x.ruling.messageIndex === i);
       if (!r || r.result === "no_action") return head;
       const rl = r.ruling;
@@ -129,7 +137,7 @@ async function runDm(s: GameState, llm: Llm, userText: string): Promise<string> 
           return { type: "tool_result", tool_use_id: u.id, content: `Sent privately to ${c.name}.` };
         }
         const out = applyTool(s, u.name, u.input as Record<string, unknown>);
-        if (out.roll) log(s, { speaker: "SYSTEM", text: out.roll, aloud: true, kind: "roll" });
+        if (out.roll) log(s, { speaker: "SYSTEM", text: out.roll, aloud: true, kind: "roll", roll: out.rollData });
         return { type: "tool_result", tool_use_id: u.id, content: out.text };
       } catch (e) {
         return { type: "tool_result", tool_use_id: u.id, content: (e as Error).message, is_error: true };
@@ -169,7 +177,7 @@ export async function opening(s: GameState, llm: Llm) {
 }
 
 // `batch` is taken out of s.pending by the caller, so messages typed while the DM is thinking wait for the next send.
-export async function sendToDm(s: GameState, llm: Llm, batch: Message[]) {
+export async function sendToDm(s: GameState, llm: Llm, batch: Message[], onRolled?: () => void) {
   if (batch.length === 0) throw new Error("Nothing to send.");
   const rulings = await runReferee(s, llm, batch);
   const resolved = rulings.map((r) => resolve(s, r));
@@ -179,9 +187,10 @@ export async function sendToDm(s: GameState, llm: Llm, batch: Message[]) {
   for (const r of resolved) {
     const src = batch[r.ruling.messageIndex];
     const whisperTo = src?.whisper ? src.whisperTo : undefined; // secret actions: roll shown only to that player
-    if (r.rollText) log(s, { speaker: "SYSTEM", text: r.rollText, aloud: true, kind: "roll", whisperTo });
+    if (r.rollText) log(s, { speaker: "SYSTEM", text: r.rollText, aloud: true, kind: "roll", whisperTo, roll: r.roll });
     else if (r.result === "rejected") log(s, { speaker: "SYSTEM", text: `${r.ruling.character}: ${r.note}`, aloud: true, kind: "rejected", whisperTo });
   }
+  onRolled?.(); // dice land on the phones while the DM is still writing
 
   const wasCombat = s.mode === "combat";
   const narration = await runDm(s, llm, dmTurnContext(s, playersText));

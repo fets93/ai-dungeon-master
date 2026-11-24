@@ -129,6 +129,9 @@ async function main() {
   await shot(anna, "06-phone-pending");
   await shot(screen, "07-screen-pending");
   await clickText(anna, "Send to DM");
+  const screenDice = await screen.waitForSelector(".dice.big.landed", { timeout: 10000 }).then(() => true).catch(() => false);
+  console.log(screenDice ? "PASS  main screen shows the dice animation" : "FAIL  no dice on the main screen");
+  await shot(screen, "18-screen-dice");
   await waitText(screen, "Veyra rolls charm", 10000);
   await sleep(1500);
   const segs = new Set(ttsRequests.map((u) => u.split("/api/tts/")[1]));
@@ -142,12 +145,26 @@ async function main() {
   await ben.type("textarea", "I sneak a hand into her apron");
   await clickText(ben, "Add");
   await clickText(ben, "Send to DM");
+  const phoneDice = await ben.waitForSelector(".dice.landed", { timeout: 10000 }).then(() => true).catch(() => false);
+  console.log(phoneDice ? "PASS  phone shows the dice animation for its own secret roll" : "FAIL  no dice on the phone");
+  await shot(ben, "19-phone-dice");
   await waitText(ben, "brass key", 10000);
   await sleep(500);
   const leaked = await screen.evaluate(() => document.body.innerText.includes("apron"));
   console.log(leaked ? "FAIL  whisper visible on the main screen" : "PASS  whisper stays off the main screen");
   await shot(ben, "16-phone-whisper");
   await shot(screen, "17-screen-host");
+
+  // Use ability button
+  await clickText(anna, "✨ Use ability");
+  await clickText(anna, "Master Key");
+  await anna.type("textarea", "on the cellar door");
+  await shot(anna, "20-phone-ability");
+  await clickText(anna, "Add");
+  await waitText(screen, "[Master Key] on the cellar door");
+  console.log("PASS  ability appears in the conversation");
+  await clickText(anna, "Send to DM");
+  await sleep(1500);
 
   // Combat
   await anna.type("textarea", "I attack the thug by the door");

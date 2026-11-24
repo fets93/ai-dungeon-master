@@ -15,6 +15,8 @@
   let tone = $state("adventurous with some humor");
   let strictness = $state<Strictness>("standard");
   let hostPin = $state("");
+  let style = $state<"short" | "balanced" | "rich">("balanced");
+  let styleNote = $state("");
 
   async function load() {
     try {
@@ -37,7 +39,7 @@
     e.preventDefault();
     creating = true;
     try {
-      const { code } = await post("/api/campaigns", { title, prompt, language, tone, strictness, hostPin });
+      const { code } = await post("/api/campaigns", { title, prompt, language, tone, strictness, hostPin, style, styleNote });
       location.hash = `#/screen/${code}`;
     } catch (err) {
       error = (err as Error).message;
@@ -134,6 +136,14 @@
           {/each}
         </div>
         <p class="small muted">How hard the referee rules: casual is forgiving, hardcore punishes reckless ideas.</p>
+        <span class="lbl">Narration style</span>
+        <div class="row seg">
+          {#each [["short", "Short"], ["balanced", "Balanced"], ["rich", "Rich"]] as const as [k, label]}
+            <button type="button" class:primary={style === k} onclick={() => (style = k)}>{label}</button>
+          {/each}
+        </div>
+        <p class="small muted">Short: 2-4 sentences. Balanced: a short paragraph. Rich: atmospheric. You can change it during play.</p>
+        <input bind:value={styleNote} maxlength="300" placeholder="Optional style wishes, e.g. noir detective, lots of dialogue" aria-label="Style wishes" />
         <label for="hpin">Host PIN (optional, 4-6 digits)</label>
         <input id="hpin" bind:value={hostPin} inputmode="numeric" maxlength="6" placeholder="Locks the main screen's controls" />
         <button class="primary full" disabled={creating}>{creating ? "Creating…" : "Create and open main screen"}</button>

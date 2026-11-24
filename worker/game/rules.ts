@@ -1,7 +1,16 @@
 // Game rules the LLM cannot override: dice, item and ability checks, and every state change from DM tools.
-import { STATS, modifier, type Character, type GameState, type ResolvedAction, type Ruling, type Stat } from "../../shared/types";
+import { STATS, modifier, type Character, type GameState, type ResolvedAction, type RollData, type Ruling, type Stat } from "../../shared/types";
 
-export let rollD20 = () => 1 + Math.floor(Math.random() * 20);
+// Cryptographic randomness, without modulo bias: values above the largest multiple of 20 are redrawn.
+function cryptoD20(): number {
+  const buf = new Uint32Array(1);
+  const limit = Math.floor(0x100000000 / 20) * 20;
+  do crypto.getRandomValues(buf);
+  while (buf[0] >= limit);
+  return 1 + (buf[0] % 20);
+}
+
+export let rollD20 = cryptoD20;
 export function setDice(fn: () => number) {
   rollD20 = fn;
 }
@@ -45,12 +54,14 @@ export function resolve(s: GameState, r: Ruling): ResolvedAction {
   const total = d + mod;
   const success = d === 20 || (d !== 1 && total >= dc);
   const rollText = `${c.name} rolls ${stat} vs DC ${dc}: ${d} ${mod >= 0 ? "+" : "−"} ${Math.abs(mod)} = ${total} → ${success ? "success" : "failure"}${d === 20 ? " (natural 20)" : d === 1 ? " (natural 1)" : ""}`;
-  return { ruling: r, result: success ? "success" : "failure", rollText };
+  const roll: RollData = { characterId: c.id, label: `${c.name}: ${stat}${r.usesAbility ? ` (${r.usesAbility})` : ""}`, d20: d, mod, total, dc, success };
+  return { ruling: r, result: success ? "success" : "failure", rollText, roll };
 }
 
 export interface ToolResult {
   text: string;
   roll?: string; // shown in the feed as a dice roll
+  rollData?: RollData;
 }
 
 export function applyTool(s: GameState, name: string, input: Record<string, any>): ToolResult {
@@ -158,7 +169,8 @@ export function applyTool(s: GameState, name: string, input: Record<string, any>
       const hit = d === 20 || (d !== 1 && d + bonus >= defense);
       if (hit) c.health = Math.max(0, c.health - dmg);
       const roll = `${e.name} attacks ${c.name}: ${d} + ${bonus} = ${d + bonus} vs ${defense} → ${hit ? `hit, ${dmg} damage (${c.health}/${c.maxHealth})` : "miss"}`;
-      return { text: roll + (hit && c.health === 0 ? `. ${c.name} is down.` : ""), roll };
+      const rollData: RollData = { characterId: null, targetId: c.id, label: `${e.name} attacks ${c.name}`, d20: d, mod: bonus, total: d + bonus, dc: defense, success: hit };
+      return { text: roll + (hit && c.health === 0 ? `. ${c.name} is down.` : ""), roll, rollData };
     }
     case "heal": {
       const c = char();
@@ -212,7 +224,7 @@ export function applyTool(s: GameState, name: string, input: Record<string, any>
         stat: input.stat,
         dc: input.dc,
       });
-      return { text: res.rollText ?? res.note ?? "No roll.", roll: res.rollText };
+      return { text: res.rollText ?? res.note ?? "No roll.", roll: res.rollText, rollData: res.roll };
     }
     default:
       throw new Error(`Unknown tool ${name}`);

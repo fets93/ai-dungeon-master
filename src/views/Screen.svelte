@@ -7,6 +7,8 @@
   import Avatar from "../components/Avatar.svelte";
   import Invite from "../components/Invite.svelte";
   import HostControls from "../components/HostControls.svelte";
+  import DiceRoll from "../components/DiceRoll.svelte";
+  import { DiceQueue } from "../lib/dice.svelte";
   import { avatarUrl } from "../../shared/types";
   import { Narrator } from "../lib/voice.svelte";
   import type { VoiceMode, VoicesResponse } from "../../shared/types";
@@ -50,6 +52,11 @@
     const fresh = dm.filter((m) => m.id > lastSeen!);
     untrack(() => fresh.forEach((m) => narrator.enqueue(m, view.npcs)));
     lastSeen = Math.max(lastSeen, maxId);
+  });
+
+  const dice = new DiceQueue(() => true); // every public roll, in the corner of the main screen
+  $effect(() => {
+    if (game.view) dice.feed(game.view.log);
   });
 
   // Suggest a recap when a running campaign is opened after a break.
@@ -261,6 +268,9 @@
   </main>
 {/if}
 
+{#if dice.current}
+  {#key dice.current}<DiceRoll roll={dice.current} big onDone={dice.next} />{/key}
+{/if}
 {#if narrator.needsGesture}
   <button class="primary unlock" onclick={() => narrator.unlock()}>🔊 Click to enable sound</button>
 {/if}
