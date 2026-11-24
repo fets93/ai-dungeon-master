@@ -60,7 +60,10 @@ const char = (name: string, extra: Partial<NewCharacterInput> = {}): NewCharacte
   concept: "Test hero",
   backstory: "",
   stats: { strength: 14, agility: 12, intelligence: 10, wisdom: 10, charm: 10, stamina: 12, resist: 10 },
-  abilities: [{ name: "Lucky Break", description: "Once per rest, reroll a bad situation.", usesPerRest: 1 }],
+  abilities: [
+    { name: "Lucky Break", description: "Once per rest, reroll a bad situation.", usesPerRest: 1 },
+    { name: "Wiggle Moustache", description: "A charming wiggle that makes people more agreeable.", usesPerRest: 2, kind: "boost", boostStat: "charm" },
+  ],
   items: ["2x Healing potion", "Sword"],
   pin: "",
   ...extra,
@@ -180,6 +183,7 @@ async function main() {
   await screen.until(() => screen.view.log.length > logBefore + 3 && !screen.view.busy, "dm turn", 8000);
   check(screen.view.pending.length === 0, "pending cleared after Send to DM");
   check(screen.view.log.some((m) => m.kind === "roll" && m.text.startsWith("Veyra rolls charm")), "persuasion rolled server-side");
+  check(screen.view.log.some((m) => m.kind === "roll" && m.text.includes("vs DC 14 (Mother Kessa's wisdom 14 (+4), neutral (+0))")), "persuasion is opposed by the NPC's wisdom and disposition");
   check(screen.view.log.at(-1)?.speaker === "DM", "DM narration logged");
   const withLine = screen.view.log.at(-1)!;
   check(withLine.text.includes("{{mother-kessa:"), "DM narration marks NPC dialogue");
@@ -281,6 +285,34 @@ async function main() {
   a.send({ t: "say", text: "x", aloud: true, ability: "Fireball" });
   await a.until(() => a.errors.some((e) => e.includes("doesn't have")), "unknown ability");
   check(a.errors.some((e) => e.includes("doesn't have")), "unknown abilities are refused");
+
+  // Boost: Wiggle Moustache, then persuade with advantage
+  a.send({ t: "say", text: "at Mother Kessa", aloud: true, ability: "Wiggle Moustache" });
+  await a.until(() => a.view.pending.some((m) => m.ability === "Wiggle Moustache"), "boost pending");
+  check(!a.view.pending.find((m) => m.ability === "Wiggle Moustache")!.castRoll, "boosts don't roll when cast");
+  a.send({ t: "send_to_dm" });
+  await a.until(() => !a.view.busy && (a.you?.character?.effects?.length ?? 0) === 1, "boost active", 8000);
+  check(a.you?.character?.effects?.[0]?.name === "Wiggle Moustache", "boost becomes an active effect on the sheet");
+  check(screen.view.characters.find((x) => x.name === "Thorin")!.effects.length === 1, "main screen shows the active boost");
+  a.send({ t: "say", text: "I persuade her to show us the ledger", aloud: true });
+  a.send({ t: "send_to_dm" });
+  await a.until(() => !a.view.busy && a.view.pending.length === 0 && (a.you?.character?.effects?.length ?? 1) === 0, "boost used", 8000);
+  const boosted = a.view.log.filter((m) => m.roll && m.text.startsWith("Thorin rolls charm")).at(-1)!;
+  check(boosted?.roll?.edge === "advantage" && boosted.roll.dice?.length === 2 && boosted.roll.d20 === Math.max(...boosted.roll.dice), "the next charm roll has advantage and keeps the higher die");
+
+  // Effect cast: the die rolls on Cast, is locked, and is used for the result
+  b.send({ t: "say", text: "to hit the hanging lantern", aloud: true, ability: "Call the Squall" });
+  await b.until(() => b.view.pending.some((m) => m.ability === "Call the Squall"), "cast pending");
+  const cast = b.view.pending.find((m) => m.ability === "Call the Squall")!;
+  check(cast.castRoll! >= 1 && cast.castRoll! <= 20, `casting rolls immediately (🎲 ${cast.castRoll})`);
+  check(!JSON.stringify(b.last).includes('"preRoll":') && !JSON.stringify(screen.last).includes('"preRoll":'), "the locked second die never reaches a client");
+  b.send({ t: "unsay", id: cast.id });
+  await b.until(() => b.errors.some((e) => e.includes("can't be taken back")), "no take-back");
+  check(b.errors.some((e) => e.includes("can't be taken back")), "a cast can't be taken back to reroll");
+  b.send({ t: "send_to_dm" });
+  await b.until(() => !b.view.busy && b.view.pending.length === 0, "cast resolved", 8000);
+  const castResult = b.view.log.filter((m) => m.roll && m.text.startsWith("Veyra rolls strength (Call the Squall)")).at(-1)!;
+  check(castResult?.roll?.d20 === cast.castRoll && castResult.roll.preRolled, "the result uses the die rolled at casting time");
 
   // Dice: structured rolls, shown before the DM has finished writing
   const histStart = b.history.length;

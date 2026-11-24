@@ -47,7 +47,10 @@ export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
         if (/potion/.test(t)) return { ...base, verdict: "trivial", reason: "Drinks the potion.", uses_item: "Healing potion", consumes_item: true };
         if (/attack|stab|shoot|hit/.test(t)) return { ...base, verdict: "needs_roll", reason: "Attack.", stat: "strength", dc: 12, success_outcome: "the blow lands", failure_consequence: "the enemy dodges and closes in" };
         if (/sneak|climb/.test(t)) return { ...base, verdict: "needs_roll", reason: "Risky.", stat: "agility", dc: 14, success_outcome: "unnoticed", failure_consequence: "spotted by the guard" };
-        if (/convince|persuade/.test(t)) return { ...base, verdict: "needs_roll", reason: "Against the NPC's goals.", stat: "charm", dc: 15, success_outcome: "the NPC agrees", failure_consequence: "the NPC grows suspicious" };
+        if (/convince|persuade/.test(t)) {
+          const npc = userText(p).match(/ACTIVE NPC: .*?\(id ([a-z0-9-]+)\)/)?.[1];
+          return { ...base, verdict: "needs_roll", reason: "Against the NPC's goals.", stat: "charm", ...(npc ? { opposed_by: { npc_id: npc, stat: "wisdom" } } : { dc: 15 }), ...(/with help/.test(t) ? { edge: "advantage" } : {}), success_outcome: "the NPC agrees", failure_consequence: "the NPC grows suspicious" };
+        }
         return { ...base, verdict: "no_action", reason: "Dialogue." };
       });
     return msg(p.model, [tool("adjudicate", { rulings })], "tool_use");
@@ -68,7 +71,7 @@ export function mockLlm(role: string, p: CreateParams): Anthropic.Message {
   if (t.includes("Open the adventure")) {
     calls.push(
       tool("set_scene", { scene: "A rain-soaked harbor tavern, the Drowned Lantern, at midnight." }),
-      tool("create_npc", { name: "Mother Kessa", personality: "shrewd, warm on the surface", speech_style: "slow, nautical slang", goals: "find who stole her ledger", knowledge: "the harbor master is corrupt", secrets: "she smuggles moonpearls", attitude: "curious", voice_gender: "female", voice_age: "old", voice_style: "raspy, slow" }),
+      tool("create_npc", { name: "Mother Kessa", personality: "shrewd, warm on the surface", speech_style: "slow, nautical slang", goals: "find who stole her ledger", knowledge: "the harbor master is corrupt", secrets: "she smuggles moonpearls", attitude: "curious", voice_gender: "female", voice_age: "old", voice_style: "raspy, slow", stats: { strength: 8, agility: 9, intelligence: 13, wisdom: 14, charm: 12 }, disposition: "neutral" }),
       tool("set_active_npc", { id: "mother-kessa" }),
       tool("add_fact", { fact: "The harbor is closed by order of the harbor master." }),
     );

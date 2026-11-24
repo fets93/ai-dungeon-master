@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BACKSTORY_MAX, STATS, modifier, type Character } from "../../shared/types";
+  import { BACKSTORY_MAX, STATS, modifier, type AbilityKind, type Character, type Stat } from "../../shared/types";
   import HealthBar from "./HealthBar.svelte";
   import Avatar from "./Avatar.svelte";
   import { avatarUrl } from "../../shared/types";
@@ -10,7 +10,15 @@
     code,
     onSaveBackstory,
     onChangeAvatar,
-  }: { c: Character; code: string; onSaveBackstory?: (text: string) => void; onChangeAvatar?: (dataUrl: string | null) => void } = $props();
+    onSetKind,
+  }: {
+    c: Character;
+    code: string;
+    onSaveBackstory?: (text: string) => void;
+    onChangeAvatar?: (dataUrl: string | null) => void;
+    onSetKind?: (name: string, kind: AbilityKind, boostStat?: Stat) => void;
+  } = $props();
+  let editingKind = $state<string | null>(null);
 
   let photoError = $state<string | null>(null);
   async function pickPhoto(e: Event) {
@@ -71,11 +79,20 @@
     {/each}
   </div>
 
+  {#if c.effects?.length}
+    <div class="row wrap effects">
+      {#each c.effects as fx}<span class="chip gold">✨ {fx.name}: advantage on next {fx.stat ?? "roll"}</span>{/each}
+    </div>
+  {/if}
+
   <h3>Abilities</h3>
   {#each c.abilities as a}
     <div class="card ab">
       <div class="row">
         <b class="grow">{a.name}</b>
+        <button class="ghost kind" title="Change type" onclick={() => (editingKind = editingKind === a.name ? null : a.name)}>
+          {a.kind ?? "effect"}{a.kind === "boost" ? `: ${a.boostStat ?? "any"}` : ""}
+        </button>
         {#if a.usesPerRest > 0}
           <span class="uses" aria-label="{a.usesLeft} of {a.usesPerRest} uses left">
             {#each Array(a.usesPerRest) as _, i}<span class="pip" class:used={i >= a.usesLeft}></span>{/each}
@@ -85,6 +102,19 @@
         {/if}
       </div>
       <div class="small muted">{a.description}</div>
+      {#if editingKind === a.name && onSetKind}
+        <div class="row wrap kindedit">
+          {#each ["effect", "boost", "passive"] as const as k}
+            <button class:on={(a.kind ?? "effect") === k} onclick={() => onSetKind(a.name, k, k === "boost" ? (a.boostStat ?? "charm") : undefined)}>{k}</button>
+          {/each}
+          {#if a.kind === "boost"}
+            <select value={a.boostStat ?? ""} aria-label="Boosted stat" onchange={(e) => onSetKind(a.name, "boost", (e.currentTarget.value || undefined) as Stat | undefined)}>
+              <option value="">any stat</option>
+              {#each STATS as k}<option value={k}>{k}</option>{/each}
+            </select>
+          {/if}
+        </div>
+      {/if}
     </div>
   {:else}
     <p class="muted small">No abilities.</p>
@@ -173,6 +203,34 @@
   .ab {
     padding: 0.6rem 0.75rem;
     margin-bottom: 0.4rem;
+  }
+  .kind {
+    min-height: 0;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .kindedit {
+    margin-top: 0.5rem;
+    gap: 0.35rem;
+  }
+  .kindedit button {
+    min-height: 34px;
+    padding: 0.2rem 0.6rem;
+    text-transform: capitalize;
+  }
+  .kindedit button.on {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+  .kindedit select {
+    width: auto;
+    min-height: 34px;
+  }
+  .effects {
+    margin-top: 0.75rem;
   }
   .uses {
     display: flex;

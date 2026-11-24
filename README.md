@@ -22,6 +22,26 @@ A tabletop role-playing game for friends with an AI game master. One shared main
 - **Whispers**: secret actions to the DM. Referee and dice still apply, but the action, its roll and the DM's private answer appear only on that player's phone; the public narration shows only what others notice.
 - **Voice**: the main screen can read the DM aloud: Off, Browser (free, built-in voice) or ElevenLabs. With ElevenLabs every NPC gets its own matching voice from your voice library; ▶ replays any DM response.
 
+## Rules
+
+**Checks:** d20 + modifier vs a difficulty (DC). The **modifier is stat − 10**: 16 → +6, 14 → +4, 8 → −2. Stats count about twice as much as in classic D&D, so a well-built character beats a lucky one more often; a natural 20 still always succeeds and a natural 1 always fails.
+
+**Difficulty:**
+- Against the world (climbing, traps, enemy defense): the referee picks from 8 easy · 12 moderate · 16 hard · 20 very hard · 24 nearly impossible (±2 for casual/hardcore).
+- Against an NPC (persuade, deceive, intimidate, outwit, outrun): **10 + NPC's stat modifier + disposition**. Wisdom resists persuasion and intimidation, intelligence sees through lies. Disposition: hostile +6, unfriendly +3, neutral 0, friendly −3, allied −6. The DM gives every NPC stats and updates their disposition.
+- Example: charm 16 vs a neutral NPC with wisdom 14 → DC 14. Roll 2 → 8, bad failure. Roll 10 → 16, success. Roll 20 → great success. Success chance 65% (25% with charm 8, 88% with advantage).
+
+**Degrees:** beat the DC by 5+ → great success (a bonus); miss by 5+ → bad failure (a real cost).
+
+**Advantage / disadvantage:** roll two d20, keep the higher / lower. From boost abilities, from help by another character or a clear edge, or (disadvantage) from conditions like poisoned. They cancel each other out.
+
+**Abilities** have a type:
+- **Effect** does something. Casting rolls the dice immediately; both dice (for a possible advantage) are locked on the server, the referee sets the DC without seeing them, and a cast can't be taken back.
+- **Boost** always works and gives advantage on the character's next roll of one stat (e.g. Wiggle Moustache → charm). Shown as an active effect until used; a rest clears it.
+- **Passive** is always on and never cast.
+
+Players can change an ability's type on their Character tab. Abilities from before this system: unlimited ones became passive, the rest effects.
+
 ## Voice (ElevenLabs)
 
 1. In ElevenLabs, create an API key (Developers → API Keys). Give it access to Text to Speech, Voices (read) and User (read, for the credit display).
@@ -67,6 +87,7 @@ Tests (with `npm run dev:worker` running in mock mode):
 ```bash
 npm run e2e                                    # server checks: joining, rules, combat, voice, rejoin, export…
 CHROME=/path/to/chrome npx tsx tests/ui.ts     # browser walkthrough with screenshots in screenshots/
+npm run test:rules                             # dice math, advantage, boosts, opposed DCs (no server needed)
 npm run check                                  # TypeScript + Svelte checks
 ```
 

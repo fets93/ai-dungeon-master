@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { STATS } from "../../shared/types";
+import { NPC_STATS, STATS } from "../../shared/types";
 
 type Tool = Anthropic.Tool;
 
@@ -22,7 +22,14 @@ export const REFEREE_TOOL: Tool = {
             verdict: { type: "string", enum: ["no_action", "trivial", "impossible", "needs_roll"] },
             reason: str("One short sentence explaining the ruling"),
             stat: { type: "string", enum: [...STATS] },
-            dc: num("Difficulty class, only for needs_roll"),
+            dc: num("Difficulty class for needs_roll against the world (climbing, traps, enemies' defense). Leave out when opposed_by is set."),
+            opposed_by: {
+              type: "object",
+              description: "When the action tries to sway, deceive, intimidate or outwit a known NPC: the NPC and the stat that resists. The server computes the DC from that NPC's stat and disposition.",
+              properties: { npc_id: str("NPC id"), stat: { type: "string", enum: [...NPC_STATS] } },
+              required: ["npc_id", "stat"],
+            },
+            edge: { type: "string", enum: ["advantage", "disadvantage"], description: "Only for clear circumstances: another character actively helps, a big tactical edge, or a hindering condition (poisoned, blinded, frightened). Active boosts are applied by the server; don't add them." },
             uses_ability: str("Exact ability name if the action relies on one"),
             uses_item: str("Exact item name if the action relies on one"),
             consumes_item: { type: "boolean", description: "True if the item is used up by the attempt (potion, scroll, thrown flask)" },
@@ -43,7 +50,7 @@ export const DM_TOOLS: Tool[] = [
   {
     name: "enemy_attack",
     description: "An enemy attacks a player character during combat. The server rolls d20 + attack_bonus against the target's defense and applies the damage on a hit.",
-    input_schema: { type: "object", properties: { enemy: str("Enemy name"), target: str("Character name"), attack_bonus: num("0-8, typical 3"), damage: num("Damage on a hit, 1-12, typical 3-6") }, required: ["enemy", "target"] },
+    input_schema: { type: "object", properties: { enemy: str("Enemy name"), target: str("Character name"), attack_bonus: num("0-8: weak 2, trained 4, dangerous 6"), damage: num("Damage on a hit, 1-12, typical 3-6") }, required: ["enemy", "target"] },
   },
   {
     name: "create_npc",
@@ -61,11 +68,31 @@ export const DM_TOOLS: Tool[] = [
         voice_gender: { type: "string", enum: ["male", "female", "neutral"], description: "How their voice sounds, used for text-to-speech" },
         voice_age: { type: "string", enum: ["young", "middle_aged", "old"] },
         voice_style: str("2-5 words on the voice's quality, e.g. 'deep, gravelly, slow' or 'bright and quick'"),
+        stats: {
+          type: "object",
+          description: "6-18, 10 is average. Used as the difficulty when players try to sway (wisdom resists persuasion, intelligence sees through lies), outrun or overpower them.",
+          properties: Object.fromEntries(NPC_STATS.map((k) => [k, { type: "integer" }])),
+          required: [...NPC_STATS],
+        },
+        disposition: { type: "string", enum: ["hostile", "unfriendly", "neutral", "friendly", "allied"], description: "How they feel about the party right now" },
       },
-      required: ["name", "personality", "speech_style", "goals", "voice_gender", "voice_age"],
+      required: ["name", "personality", "speech_style", "goals", "voice_gender", "voice_age", "stats", "disposition"],
     },
   },
-  { name: "update_npc", description: "Change an NPC's attitude or add something they will remember.", input_schema: { type: "object", properties: { id: str("NPC id"), attitude: str("New attitude"), remember: str("A memory to keep") }, required: ["id"] } },
+  {
+    name: "update_npc",
+    description: "Change an NPC's attitude or disposition (after the party helped, insulted or tricked them) or add something they will remember.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: str("NPC id"),
+        attitude: str("New attitude in words"),
+        disposition: { type: "string", enum: ["hostile", "unfriendly", "neutral", "friendly", "allied"] },
+        remember: str("A memory to keep"),
+      },
+      required: ["id"],
+    },
+  },
   { name: "set_active_npc", description: "The party is now talking to this NPC (switches to conversation mode).", input_schema: { type: "object", properties: { id: str("NPC id") }, required: ["id"] } },
   { name: "add_fact", description: "Record a lasting fact about the world.", input_schema: { type: "object", properties: { fact: str("One sentence") }, required: ["fact"] } },
   { name: "give_item", description: "Give a character an item.", input_schema: { type: "object", properties: { character: str("Name"), item: str("Item name"), qty: num("Quantity"), description: str("Short description") }, required: ["character", "item"] } },
@@ -82,7 +109,7 @@ export const DM_TOOLS: Tool[] = [
       properties: {
         enemies: {
           type: "array",
-          items: { type: "object", properties: { name: str("Unique name, e.g. 'Bandit 1'"), health: num("Health, 4-30 typical"), defense: num("DC to hit, 10-16 typical") }, required: ["name", "health", "defense"] },
+          items: { type: "object", properties: { name: str("Unique name, e.g. 'Bandit 1'"), health: num("Health, 4-30 typical"), defense: num("DC to hit: weak 10, trained 13, armored 16, elite 19") }, required: ["name", "health", "defense"] },
         },
       },
       required: ["enemies"],

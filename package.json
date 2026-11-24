@@ -7,7 +7,8 @@
     "build": "vite build",
     "deploy": "vite build && wrangler deploy",
     "check": "tsc -p tsconfig.json && svelte-check --tsconfig ./src/tsconfig.json",
-    "e2e": "tsx tests/e2e.ts"
+    "e2e": "tsx tests/e2e.ts",
+    "test:rules": "tsx tests/rules.ts"
   },
   "keywords": [],
   "author": "",

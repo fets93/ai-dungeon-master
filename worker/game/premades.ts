@@ -2,7 +2,7 @@ import type { Character } from "../../shared/types";
 
 // Ready-made characters for guests or quick starts. Copied into every new campaign.
 export function premadeCharacters(): Character[] {
-  const base = { backstory: "", conditions: [], ownerId: null, pin: null, readyMade: true };
+  const base = { backstory: "", conditions: [], effects: [], ownerId: null, pin: null, readyMade: true };
   return [
     {
       ...base,
@@ -13,8 +13,8 @@ export function premadeCharacters(): Character[] {
       health: 16,
       maxHealth: 16,
       abilities: [
-        { name: "Second Wind", description: "Once per rest, shrug off a hit: heal 6 health instantly.", usesPerRest: 1, usesLeft: 1 },
-        { name: "Street Wise", description: "Knows how rough neighbourhoods work; easier to find people, fences and back alleys.", usesPerRest: 0, usesLeft: 0 },
+        { name: "Second Wind", description: "Once per rest, shrug off a hit: heal 6 health instantly.", usesPerRest: 1, usesLeft: 1, kind: "effect" },
+        { name: "Street Wise", description: "Knows how rough neighbourhoods work; easier to find people, fences and back alleys.", usesPerRest: 0, usesLeft: 0, kind: "passive" },
       ],
       inventory: [
         { name: "Iron knuckles", qty: 1 },
@@ -31,8 +31,8 @@ export function premadeCharacters(): Character[] {
       health: 14,
       maxHealth: 14,
       abilities: [
-        { name: "Flash Powder", description: "Throw a pouch that blinds everyone within a few steps for a moment. Not damaging.", usesPerRest: 2, usesLeft: 2 },
-        { name: "Know Your Poisons", description: "Identify any substance, potion or poison by smell or taste.", usesPerRest: 0, usesLeft: 0 },
+        { name: "Flash Powder", description: "Throw a pouch that blinds everyone within a few steps for a moment. Not damaging.", usesPerRest: 2, usesLeft: 2, kind: "effect" },
+        { name: "Know Your Poisons", description: "Identify any substance, potion or poison by smell or taste.", usesPerRest: 0, usesLeft: 0, kind: "passive" },
       ],
       inventory: [
         { name: "Healing potion", qty: 2 },
@@ -49,8 +49,8 @@ export function premadeCharacters(): Character[] {
       health: 16,
       maxHealth: 16,
       abilities: [
-        { name: "Call the Squall", description: "Summon a violent gust of wind that knocks one person or object off their feet. Needs open air.", usesPerRest: 2, usesLeft: 2 },
-        { name: "Sea Sense", description: "Always knows which way the sea is and senses unnatural things in water.", usesPerRest: 0, usesLeft: 0 },
+        { name: "Call the Squall", description: "Summon a violent gust of wind that knocks one person or object off their feet. Needs open air.", usesPerRest: 2, usesLeft: 2, kind: "effect" },
+        { name: "Sea Sense", description: "Always knows which way the sea is and senses unnatural things in water.", usesPerRest: 0, usesLeft: 0, kind: "passive" },
       ],
       inventory: [
         { name: "Cutlass", qty: 1 },

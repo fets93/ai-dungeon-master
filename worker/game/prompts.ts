@@ -1,8 +1,10 @@
 import type { GameState } from "../../shared/types";
 import { activeCombatantId, describeCharacters } from "./rules";
 
-const DC_TABLE = `DC guide: 5 very easy, 10 easy, 13 moderate, 16 hard, 19 very hard, 22+ nearly impossible.
-Strictness shifts this: casual -2, standard 0, hardcore +2, and harsher failure consequences in hardcore.`;
+const DC_TABLE = `Roll = d20 + (stat - 10), so a stat of 16 adds +6 and 8 subtracts 2.
+DC guide for the world: 8 easy, 12 moderate, 16 hard, 20 very hard, 24 nearly impossible.
+Against a known NPC (persuade, deceive, intimidate, outwit, outrun, wrestle) use opposed_by instead of a DC: wisdom resists persuasion and intimidation, intelligence sees through lies and tricks, strength/agility resist physical contests.
+Strictness shifts world DCs: casual -2, standard 0, hardcore +2, and harsher failure consequences in hardcore.`;
 
 function enemiesLine(s: GameState) {
   return s.enemies.length ? `\nENEMIES: ${s.enemies.map((e) => `${e.name} (health ${e.health}, defense DC ${e.defense})`).join(", ")}` : "";
@@ -17,7 +19,8 @@ function activeNpcBlock(s: GameState): string {
   Goals: ${npc.goals}
   Knows: ${npc.knowledge}
   Secrets (never reveal unless the players truly earn it): ${npc.secrets}
-  Attitude to the party: ${npc.attitude}
+  Attitude to the party: ${npc.attitude} (disposition: ${npc.disposition ?? "neutral"})
+  Stats: ${npc.stats ? Object.entries(npc.stats).map(([k, v]) => `${k} ${v}`).join(", ") : "average"}
   Remembers: ${npc.memory.join("; ") || "nothing yet"}
 `;
 }
@@ -43,6 +46,7 @@ Be strict:
 - An ability does only what its description says. Reject or limit attempts to stretch it.
 - Players cannot declare facts about the world ("I find a key", "the guard is my cousin"). Treat that as impossible or as a roll to look for it.
 - Convincing an NPC is a charm roll against the NPC's goals and attitude, never automatic.
+- Messages starting with [Ability name] use that ability; set uses_ability to it. Boost abilities always work (the server applies them); effect abilities need a roll when the outcome is uncertain.
 - Several distinct actions in one message: rule on the most important one and mention the rest in the reason.
 - Failure consequences must cost something: health, an item, time, position, an NPC's trust, noise.
 
@@ -62,6 +66,7 @@ ${s.facts.map((f) => `- ${f}`).join("\n") || "- none yet"}
 CHARACTERS:
 ${describeCharacters(s)}
 
+KNOWN NPCS: ${s.npcs.map((n) => `${n.name} (id ${n.id}, ${n.disposition ?? "neutral"})`).join(", ") || "none"}
 ${activeNpcBlock(s)}
 MESSAGES TO RULE ON:
 ${msgs}`;
@@ -82,6 +87,8 @@ HOW YOU WORK
 - When the party starts talking to an NPC, call set_active_npc. Voice that NPC in their speech style, from their goals and knowledge only. NPCs only hear what was said aloud, never table talk.
 - Combat: start it with start_combat (enemies with health and a defense DC). Players act one at a time in initiative order. After resolving the current player's action, let one or two enemies respond with enemy_attack (the server rolls). Do not use apply_damage on player characters for enemy attacks. End with end_combat when the fight is over.
 - Characters marked as absent stay in the background; never make them act or speak.
+- Rolls come with a degree: a GREAT SUCCESS deserves a bonus beyond what was asked; a BAD FAILURE should cost something real. A plain success or failure is just that.
+- Give every NPC you create honest stats (a dock guard is not a genius) and a disposition, and update the disposition with update_npc when the party wins them over or angers them.
 - "Yes, but" and "no, and" are good storytelling. Failure should be interesting, not a dead end.
 - LENGTH AND STYLE: ${STYLE_RULES[s.config.style ?? "balanced"]}${s.config.styleNote ? ` The group's style wishes: ${s.config.styleNote}` : ""}
 - End by making clear what the players face now. Never decide what player characters say or feel.

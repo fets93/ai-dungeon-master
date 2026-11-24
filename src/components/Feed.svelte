@@ -66,7 +66,7 @@
       <p class="say" class:talk={!m.aloud && !m.whisper} class:whisper={m.whisper}>
         {#if avatarFor}<Avatar src={avatarFor(m.speaker)} name={m.speaker} size={big ? 34 : 24} />{/if}
         <b>{m.speaker}</b>{#if m.whisper}<span class="tag">whisper</span>{:else if !m.aloud}<span class="tag">table talk</span>{/if}
-        <span>{m.text}</span>
+        <span>{m.text}</span>{#if m.castRoll}<span class="cast">🎲 {m.castRoll}</span>{/if}
       </p>
     {/if}
   {/each}
@@ -77,8 +77,8 @@
       {#each pending as m (m.id)}
         <p class="say pend" class:talk={!m.aloud && !m.whisper} class:whisper={m.whisper}>
           <b>{m.speaker}</b>{#if m.whisper}<span class="tag">whisper</span>{:else if !m.aloud}<span class="tag">table talk</span>{/if}
-          <span>{m.text}</span>
-          {#if onUnsay && m.playerId === myPlayerId}
+          <span>{m.text}</span>{#if m.castRoll}<span class="cast">🎲 {m.castRoll}</span>{/if}
+          {#if onUnsay && m.playerId === myPlayerId && !m.castRoll}
             <button class="ghost x" aria-label="Remove message" onclick={() => onUnsay(m.id)}>×</button>
           {/if}
         </p>
@@ -174,6 +174,12 @@
   }
   .say.talk b {
     color: var(--talk);
+  }
+  .cast {
+    flex: 0 !important;
+    white-space: nowrap;
+    color: var(--gold);
+    font-weight: 700;
   }
   .say.whisper {
     border-style: dashed;

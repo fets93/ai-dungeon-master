@@ -1,5 +1,5 @@
 // Game rules the LLM cannot override: dice, item and ability checks, and every state change from DM tools.
-import { STATS, modifier, type Character, type GameState, type ResolvedAction, type RollData, type Ruling, type Stat } from "../../shared/types";
+import { DISPOSITION_MOD, NPC_STATS, STATS, modifier, type Ability, type Character, type GameState, type NpcStat, type ResolvedAction, type RollData, type Ruling, type Stat } from "../../shared/types";
 
 // Cryptographic randomness, without modulo bias: values above the largest multiple of 20 are redrawn.
 function cryptoD20(): number {
@@ -22,7 +22,23 @@ export function findCharacter(s: GameState, name: string): Character | undefined
 
 const activeCharacters = (s: GameState) => s.characters.filter((c) => c.present);
 
-export function resolve(s: GameState, r: Ruling): ResolvedAction {
+// DC for swaying an NPC: 10 + their stat's modifier + how they feel about the party.
+export function opposedDc(s: GameState, npcId: string, stat: NpcStat): { dc: number; why: string } | null {
+  const npc = s.npcs.find((n) => n.id === npcId);
+  if (!npc) return null;
+  const score = npc.stats?.[stat] ?? 10;
+  const disp = npc.disposition ?? "neutral";
+  const dc = 10 + modifier(score) + DISPOSITION_MOD[disp];
+  return { dc, why: `${npc.name}'s ${stat} ${score} (${fmt(modifier(score))}), ${disp} (${fmt(DISPOSITION_MOD[disp])})` };
+}
+
+const fmt = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+
+/**
+ * Resolves one ruling: server-side checks, then the dice.
+ * preRoll: two d20s locked when an ability was cast; otherwise fresh dice are rolled here.
+ */
+export function resolve(s: GameState, r: Ruling, preRoll?: number[]): ResolvedAction {
   if (r.verdict === "no_action") return { ruling: r, result: "no_action" };
   if (r.verdict === "impossible") return { ruling: r, result: "rejected", note: r.reason };
 
@@ -38,23 +54,64 @@ export function resolve(s: GameState, r: Ruling): ResolvedAction {
       if (item.qty === 0) c.inventory = c.inventory.filter((i) => i !== item);
     }
   }
+  let ability: Ability | undefined;
   if (r.usesAbility) {
-    const ab = c.abilities.find((a) => a.name.toLowerCase() === r.usesAbility!.toLowerCase());
-    if (!ab) return { ruling: r, result: "rejected", note: `${c.name} has no ability "${r.usesAbility}".` };
-    if (ab.usesPerRest > 0 && ab.usesLeft <= 0) return { ruling: r, result: "rejected", note: `${ab.name} is used up until the next rest.` };
-    if (ab.usesPerRest > 0) ab.usesLeft -= 1;
+    ability = c.abilities.find((a) => a.name.toLowerCase() === r.usesAbility!.toLowerCase());
+    if (!ability) return { ruling: r, result: "rejected", note: `${c.name} has no ability "${r.usesAbility}".` };
+    if (ability.kind === "passive") return { ruling: r, result: "rejected", note: `${ability.name} is passive: it's always on and can't be cast.` };
+    if (ability.usesPerRest > 0 && ability.usesLeft <= 0) return { ruling: r, result: "rejected", note: `${ability.name} is used up until the next rest.` };
+    if (ability.usesPerRest > 0) ability.usesLeft -= 1;
+    // A boost always works: it gives advantage on the character's next roll with its stat.
+    if (ability.kind === "boost") {
+      c.effects = [...(c.effects ?? []).filter((e) => e.name !== ability!.name), { name: ability.name, stat: ability.boostStat ?? null }];
+      return { ruling: { ...r, reason: `${ability.name}: advantage on ${c.name}'s next ${ability.boostStat ?? "roll"}` }, result: "auto_success" };
+    }
   }
 
   if (r.verdict === "trivial") return { ruling: r, result: "auto_success" };
 
   const stat: Stat = r.stat && (STATS as readonly string[]).includes(r.stat) ? r.stat : "strength";
-  const dc = Math.max(1, Math.min(30, Math.round(r.dc ?? 12)));
-  const d = rollD20();
+  let dc = Math.max(1, Math.min(35, Math.round(r.dc ?? 12)));
+  let dcWhy = "";
+  if (r.opposedBy) {
+    const o = opposedDc(s, r.opposedBy.npcId, r.opposedBy.stat);
+    if (o) ({ dc, why: dcWhy } = o);
+  }
+
+  // Advantage: a matching boost (used up now) or the referee's call; advantage and disadvantage cancel out.
+  let adv = r.edge === "advantage" ? 1 : r.edge === "disadvantage" ? -1 : 0;
+  const boost = (c.effects ?? []).find((e) => e.stat === null || e.stat === stat);
+  if (boost) {
+    adv += 1;
+    c.effects = (c.effects ?? []).filter((e) => e !== boost);
+  }
+  const edge = adv > 0 ? "advantage" : adv < 0 ? "disadvantage" : undefined;
+  const dice = preRoll?.length ? preRoll.slice(0, 2) : [rollD20(), rollD20()];
+  const d = edge === "advantage" ? Math.max(dice[0], dice[1]) : edge === "disadvantage" ? Math.min(dice[0], dice[1]) : dice[0];
+
   const mod = modifier(c.stats[stat]);
   const total = d + mod;
   const success = d === 20 || (d !== 1 && total >= dc);
-  const rollText = `${c.name} rolls ${stat} vs DC ${dc}: ${d} ${mod >= 0 ? "+" : "−"} ${Math.abs(mod)} = ${total} → ${success ? "success" : "failure"}${d === 20 ? " (natural 20)" : d === 1 ? " (natural 1)" : ""}`;
-  const roll: RollData = { characterId: c.id, label: `${c.name}: ${stat}${r.usesAbility ? ` (${r.usesAbility})` : ""}`, d20: d, mod, total, dc, success };
+  const margin = total - dc;
+  const degree = success ? (margin >= 5 || d === 20 ? "great" : "success") : margin <= -5 || d === 1 ? "bad" : "failure";
+  const degreeText = { great: "great success", success: "success", failure: "failure", bad: "bad failure" }[degree];
+  const diceText = edge ? `${edge} [${dice[0]}, ${dice[1]}] → ${d}` : `${d}`;
+  const rollText =
+    `${c.name} rolls ${stat}${ability ? ` (${ability.name})` : ""}${boost ? ` with ${boost.name}` : ""} vs DC ${dc}${dcWhy ? ` (${dcWhy})` : ""}: ` +
+    `${diceText} ${mod >= 0 ? "+" : "−"} ${Math.abs(mod)} = ${total} → ${degreeText}${d === 20 ? " (natural 20)" : d === 1 ? " (natural 1)" : ""}`;
+  const roll: RollData = {
+    characterId: c.id,
+    label: `${c.name}: ${stat}${ability ? ` (${ability.name})` : ""}`,
+    d20: d,
+    dice: edge ? dice : undefined,
+    edge,
+    mod,
+    total,
+    dc,
+    success,
+    degree,
+    preRolled: !!preRoll?.length,
+  };
   return { ruling: r, result: success ? "success" : "failure", rollText, roll };
 }
 
@@ -100,6 +157,8 @@ export function applyTool(s: GameState, name: string, input: Record<string, any>
         secrets: String(input.secrets ?? ""),
         attitude: String(input.attitude ?? "neutral"),
         memory: [],
+        stats: npcStats(input.stats),
+        disposition: disposition(input.disposition) ?? "neutral",
         voice: {
           gender: ["male", "female", "neutral"].includes(input.voice_gender) ? input.voice_gender : "neutral",
           age: ["young", "middle_aged", "old"].includes(input.voice_age) ? input.voice_age : "middle_aged",
@@ -112,6 +171,7 @@ export function applyTool(s: GameState, name: string, input: Record<string, any>
       const npc = s.npcs.find((x) => x.id === input.id);
       if (!npc) throw new Error(`Unknown NPC ${input.id}`);
       if (input.attitude) npc.attitude = String(input.attitude);
+      if (disposition(input.disposition)) npc.disposition = disposition(input.disposition);
       if (input.remember) npc.memory.push(String(input.remember));
       return ok(`Updated ${npc.name}.`);
     }
@@ -212,6 +272,7 @@ export function applyTool(s: GameState, name: string, input: Record<string, any>
     case "rest":
       for (const c of s.characters) {
         for (const a of c.abilities) a.usesLeft = a.usesPerRest;
+        c.effects = [];
         if (c.health > 0) c.health = Math.min(c.maxHealth, c.health + Math.ceil(c.maxHealth / 2));
       }
       return ok("The party rests: abilities restored, half health regained.");
@@ -229,6 +290,20 @@ export function applyTool(s: GameState, name: string, input: Record<string, any>
     default:
       throw new Error(`Unknown tool ${name}`);
   }
+}
+
+function npcStats(input: unknown): Record<NpcStat, number> {
+  const src = (input && typeof input === "object" ? input : {}) as Record<string, unknown>;
+  const out = {} as Record<NpcStat, number>;
+  for (const k of NPC_STATS) {
+    const v = Math.round(Number(src[k]));
+    out[k] = Number.isFinite(v) ? Math.max(6, Math.min(18, v)) : 10;
+  }
+  return out;
+}
+
+function disposition(v: unknown) {
+  return (["hostile", "unfriendly", "neutral", "friendly", "allied"] as const).find((d) => d === v);
 }
 
 // Move the combat turn to the next character who can still act.
@@ -261,11 +336,12 @@ export function describeCharacters(s: GameState, withBackstory = false): string 
     .map((c) => {
       const stats = STATS.map((k) => `${k} ${c.stats[k]} (${modifier(c.stats[k]) >= 0 ? "+" : ""}${modifier(c.stats[k])})`).join(", ");
       const abil = c.abilities
-        .map((a) => `${a.name} [${a.usesPerRest > 0 ? `${a.usesLeft}/${a.usesPerRest} uses` : "unlimited"}]: ${a.description}`)
+        .map((a) => `${a.name} [${a.kind ?? "effect"}${a.kind === "boost" ? ` on ${a.boostStat ?? "any roll"}` : ""}, ${a.usesPerRest > 0 ? `${a.usesLeft}/${a.usesPerRest} uses` : "unlimited"}]: ${a.description}`)
         .join("; ");
+      const fx = c.effects?.length ? `\n  Active boosts: ${c.effects.map((e) => `${e.name} (advantage on next ${e.stat ?? "roll"})`).join(", ")}` : "";
       const inv = c.inventory.map((i) => `${i.qty}x ${i.name}`).join(", ") || "nothing";
       const away = c.present ? "" : " [player absent this session: keep in the background]";
-      return `- ${c.name}${away}, ${c.concept}. Health ${c.health}/${c.maxHealth}. ${stats}.\n  Abilities: ${abil || "none"}\n  Inventory: ${inv}\n  Conditions: ${c.conditions.join(", ") || "none"}${withBackstory && c.backstory ? `\n  Backstory: ${c.backstory}` : ""}`;
+      return `- ${c.name}${away}, ${c.concept}. Health ${c.health}/${c.maxHealth}. ${stats}.\n  Abilities: ${abil || "none"}\n  Inventory: ${inv}\n  Conditions: ${c.conditions.join(", ") || "none"}${fx}${withBackstory && c.backstory ? `\n  Backstory: ${c.backstory}` : ""}`;
     })
     .join("\n");
 }

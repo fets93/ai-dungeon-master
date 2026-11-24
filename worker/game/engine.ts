@@ -73,6 +73,8 @@ async function runReferee(s: GameState, llm: Llm, batch: Message[]): Promise<Rul
       reason: r.reason ?? "",
       stat: r.stat,
       dc: r.dc,
+      opposedBy: r.opposed_by?.npc_id && r.opposed_by?.stat ? { npcId: r.opposed_by.npc_id, stat: r.opposed_by.stat } : undefined,
+      edge: r.edge === "advantage" || r.edge === "disadvantage" ? r.edge : undefined,
       usesAbility: batch[idx].ability || r.uses_ability || undefined, // the Use ability button always counts
       usesItem: r.uses_item || undefined,
       consumesItem: !!r.consumes_item,
@@ -105,9 +107,9 @@ function describeResolved(batch: Message[], resolved: ResolvedAction[]): string 
         case "rejected":
           return `${head}\n   -> REJECTED: ${r.note}. This does not happen; narrate why.`;
         case "success":
-          return `${head}\n   -> ${r.rollText}${spent}\n   -> Outcome: ${rl.successOutcome ?? "it works"}`;
+          return `${head}\n   -> ${r.rollText}${spent}\n   -> Outcome: ${rl.successOutcome ?? "it works"}${r.roll?.degree === "great" ? " PLUS a bonus: it goes even better than hoped." : ""}`;
         case "failure":
-          return `${head}\n   -> ${r.rollText}${spent}\n   -> Consequence (apply it with tools): ${rl.failureConsequence ?? "it goes wrong"}`;
+          return `${head}\n   -> ${r.rollText}${spent}\n   -> Consequence (apply it with tools): ${rl.failureConsequence ?? "it goes wrong"}${r.roll?.degree === "bad" ? " AND it goes badly wrong: make it costly." : ""}`;
       }
     })
     .join("\n");
@@ -180,7 +182,7 @@ export async function opening(s: GameState, llm: Llm) {
 export async function sendToDm(s: GameState, llm: Llm, batch: Message[], onRolled?: () => void) {
   if (batch.length === 0) throw new Error("Nothing to send.");
   const rulings = await runReferee(s, llm, batch);
-  const resolved = rulings.map((r) => resolve(s, r));
+  const resolved = rulings.map((r) => resolve(s, r, batch[r.messageIndex]?.preRoll));
   const playersText = describeResolved(batch, resolved);
 
   for (const m of batch) s.log.push(m);

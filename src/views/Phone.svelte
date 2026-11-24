@@ -92,6 +92,23 @@
   $effect(() => {
     if (v) dice.feed(v.log);
   });
+  // Casting rolls the die immediately: show it as soon as the cast message appears.
+  const seenCasts = new Set<number>();
+  let castsPrimed = false;
+  $effect(() => {
+    if (!v || !you) return;
+    const mine = v.pending.filter((m) => m.playerId === you.playerId && m.castRoll);
+    if (!castsPrimed) {
+      mine.forEach((m) => seenCasts.add(m.id)); // don't replay old casts after a reload
+      castsPrimed = true;
+      return;
+    }
+    for (const m of mine)
+      if (!seenCasts.has(m.id)) {
+        seenCasts.add(m.id);
+        dice.push({ characterId: me?.id ?? null, label: `Casting ${m.ability}`, d20: m.castRoll!, mod: 0, total: m.castRoll!, dc: 0, success: true, cast: true });
+      }
+  });
 
   function onKey(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) say(e);
@@ -193,16 +210,16 @@
             {#if v.paused}<p class="paused small">⏸ The game is paused. You can still write; sending resumes when the host continues.</p>{/if}
             {#if pickingAbility && me}
               <div class="abilities">
-                {#each me.abilities as a}
+                {#each me.abilities.filter((a) => a.kind !== "passive") as a}
                   <button
                     type="button"
                     disabled={a.usesPerRest > 0 && a.usesLeft <= 0}
                     onclick={() => { ability = a.name; pickingAbility = false; }}>
                     <b>{a.name}</b>
-                    <span class="small muted">{a.usesPerRest > 0 ? `${a.usesLeft}/${a.usesPerRest} left` : "unlimited"}</span>
+                    <span class="small muted">{a.kind === "boost" ? `boost: ${a.boostStat ?? "any roll"} · ` : ""}{a.usesPerRest > 0 ? `${a.usesLeft}/${a.usesPerRest} left` : "unlimited"}</span>
                   </button>
                 {:else}
-                  <p class="small muted">Your character has no abilities.</p>
+                  <p class="small muted">No abilities to cast (passive ones are always on).</p>
                 {/each}
               </div>
             {/if}
@@ -216,7 +233,7 @@
                 <span class="chip gold">✨ {ability}</span>
                 <button type="button" class="ghost tiny" aria-label="Cancel ability" onclick={() => (ability = null)}>×</button>
               {:else}
-                <button type="button" class="ghost tiny usebtn" disabled={!myTurn || !me?.abilities.length} onclick={() => (pickingAbility = !pickingAbility)}>✨ Use ability</button>
+                <button type="button" class="ghost tiny usebtn" disabled={!myTurn || !me?.abilities.some((a) => a.kind !== "passive")} onclick={() => (pickingAbility = !pickingAbility)}>✨ Use ability</button>
               {/if}
             </div>
             <div class="row">
@@ -227,7 +244,7 @@
                 maxlength="600"
                 placeholder={ability ? `How or at whom do you use ${ability}?` : channel === "aloud" ? `What does ${me?.name} say or do?` : channel === "talk" ? "Only the table hears this, not the NPCs" : "A secret action: only the DM sees this"}
               ></textarea>
-              <button class="say" disabled={!text.trim() && !ability}>Add</button>
+              <button class="say" disabled={!text.trim() && !ability}>{ability ? "Cast ✨" : "Add"}</button>
             </div>
             <button type="button" class="primary wide send" disabled={!canSend || v.paused} onclick={() => game.send({ t: "send_to_dm" })}>
               {#if v.busy}<span class="thinking">DM is thinking</span>
@@ -241,7 +258,7 @@
     {:else if tab === "character"}
       <section class="pad scroll">
         {#if me}
-          <Sheet c={me} {code} onSaveBackstory={(text) => game.send({ t: "update_backstory", text })} onChangeAvatar={(dataUrl) => game.send({ t: "set_avatar", dataUrl })} />
+          <Sheet c={me} {code} onSaveBackstory={(text) => game.send({ t: "update_backstory", text })} onChangeAvatar={(dataUrl) => game.send({ t: "set_avatar", dataUrl })} onSetKind={(name, kind, boostStat) => game.send({ t: "set_ability_kind", name, kind, boostStat })} />
           <div class="row wrap actions">
             <button onclick={() => confirm("Let go of this character? You can pick it again later.") && game.send({ t: "leave_character" })}>Switch character</button>
             <button class="ghost" onclick={() => game.send({ t: "spectate" })}>Just watch</button>

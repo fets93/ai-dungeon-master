@@ -50,7 +50,9 @@
   let backstory = $state("");
   let pin = $state("");
   let stats = $state(Object.fromEntries(STATS.map((k) => [k, STAT_BASE])) as Record<Stat, number>);
-  let abilities = $state([{ name: "", description: "", usesPerRest: 1 }]);
+  let abilities = $state<{ name: string; description: string; usesPerRest: number; kind: "effect" | "boost" | "passive"; boostStat?: Stat }[]>([
+    { name: "", description: "", usesPerRest: 1, kind: "effect" },
+  ]);
   let items = $state(["", "", ""]);
 
   const used = $derived(statPointsUsed(stats));
@@ -135,10 +137,29 @@
     <div class="ability card">
       <input bind:value={a.name} maxlength="40" placeholder="Call the Squall" aria-label="Ability name" />
       <textarea bind:value={a.description} rows="2" maxlength="240" placeholder="A violent gust knocks one person or object off their feet. Needs open air." aria-label="What it does"></textarea>
-      <div class="row">
+      <div class="row kinds">
+        {#each [["effect", "Effect"], ["boost", "Boost"], ["passive", "Passive"]] as const as [k, label]}
+          <button type="button" class:on={a.kind === k} onclick={() => { a.kind = k; if (k === "passive") a.usesPerRest = 0; else if (a.usesPerRest === 0) a.usesPerRest = 1; }}>{label}</button>
+        {/each}
+      </div>
+      <p class="small muted kindhelp">
+        {#if a.kind === "effect"}Does something (a gust of wind, a fireball). Rolls the dice when cast.
+        {:else if a.kind === "boost"}Makes your next roll of one stat more likely to succeed (advantage: roll two dice, keep the higher).
+        {:else}Always on, never cast (a sixth sense, knowing the streets).{/if}
+      </p>
+      {#if a.kind === "boost"}
+        <div class="row">
+          <span class="small muted grow">Boosts rolls of</span>
+          <select bind:value={a.boostStat} aria-label="Boosted stat" style="width:auto">
+            <option value={undefined}>any stat</option>
+            {#each STATS as k}<option value={k}>{k}</option>{/each}
+          </select>
+        </div>
+      {/if}
+      <div class="row" hidden={a.kind === "passive"}>
         <span class="small muted grow">Uses per rest</span>
         <select bind:value={a.usesPerRest} aria-label="Uses per rest" style="width:auto">
-          <option value={0}>unlimited (minor)</option>
+          <option value={0}>unlimited</option>
           <option value={1}>1</option>
           <option value={2}>2</option>
           <option value={3}>3</option>
@@ -148,7 +169,7 @@
     </div>
   {/each}
   {#if abilities.length < MAX_ABILITIES}
-    <button type="button" class="ghost" onclick={() => abilities.push({ name: "", description: "", usesPerRest: 1 })}>+ Add ability</button>
+    <button type="button" class="ghost" onclick={() => abilities.push({ name: "", description: "", usesPerRest: 1, kind: "effect" })}>+ Add ability</button>
   {/if}
 
   <span class="lbl">Starting items</span>
@@ -222,6 +243,20 @@
     gap: 0.4rem;
     margin-bottom: 0.5rem;
     padding: 0.6rem;
+  }
+  .kinds button {
+    flex: 1;
+    min-height: 36px;
+    padding: 0.2rem;
+    font-size: 0.9rem;
+  }
+  .kinds button.on {
+    border-color: var(--gold);
+    background: var(--gold-soft);
+    color: var(--gold);
+  }
+  .kindhelp {
+    margin: 0;
   }
   .item {
     margin-bottom: 0.35rem;

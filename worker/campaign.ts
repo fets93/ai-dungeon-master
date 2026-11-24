@@ -31,7 +31,7 @@ import { matchVoice, pickNarrator } from "./voice";
 import { generateStory, opening, recap, sendToDm } from "./game/engine";
 import { makeLlm } from "./game/llm";
 import { premadeCharacters } from "./game/premades";
-import { activeCombatantId } from "./game/rules";
+import { activeCombatantId, rollD20 } from "./game/rules";
 import type { Env } from "./index";
 
 interface Attachment {
@@ -63,6 +63,15 @@ export class Campaign extends DurableObject<Env> {
         this.s.blurb ??= "";
         this.s.hostPin ??= null;
         this.s.paused ??= false;
+        // Rules v2: abilities get a kind, NPCs get stats and a disposition.
+        for (const c of this.s.characters) {
+          c.effects ??= [];
+          for (const a of c.abilities) a.kind ??= a.usesPerRest === 0 ? "passive" : "effect";
+        }
+        for (const n of this.s.npcs) {
+          n.stats ??= { strength: 10, agility: 10, intelligence: 10, wisdom: 10, charm: 10 };
+          n.disposition ??= "neutral";
+        }
         this.canUndo = !!(await ctx.storage.get("undo"));
       }
     });
@@ -345,11 +354,17 @@ export class Campaign extends DurableObject<Env> {
         if (!text) return;
         const whisper = !!msg.whisper;
         let ability: string | undefined;
+        let preRoll: number[] | undefined;
         if (msg.ability) {
           const ab = c.abilities.find((a) => a.name === msg.ability);
           if (!ab) throw new Error("Your character doesn't have that ability.");
+          if (ab.kind === "passive") throw new Error(`${ab.name} is passive: it's always on.`);
           if (ab.usesPerRest > 0 && ab.usesLeft <= 0) throw new Error(`${ab.name} is used up until the next rest.`);
+          if (s.pending.some((m) => m.ability === ab.name && m.playerId === p.id)) throw new Error(`${ab.name} is already waiting to be sent.`);
           ability = ab.name;
+          // Effects roll the moment they're cast. Two dice are locked in (for advantage/disadvantage);
+          // the referee sets the difficulty later without seeing them.
+          if (ab.kind !== "boost") preRoll = [rollD20(), rollD20()];
         }
         const active = activeCombatantId(s);
         if (active && active !== c.id && (msg.aloud || whisper)) throw new Error("It's not your turn. Table talk is still allowed.");
@@ -360,6 +375,7 @@ export class Campaign extends DurableObject<Env> {
           text: ability ? `[${ability}] ${text}` : text,
           aloud: !!msg.aloud && !whisper,
           ...(ability ? { ability } : {}),
+          ...(preRoll ? { preRoll, castRoll: preRoll[0] } : {}),
           ...(whisper ? { whisper: true, whisperTo: c.id } : {}),
         });
         await this.save();
@@ -368,6 +384,7 @@ export class Campaign extends DurableObject<Env> {
 
       case "unsay": {
         const p = needPlayer();
+        if (s.pending.some((m) => m.id === msg.id && m.preRoll)) throw new Error("A cast ability can't be taken back: the dice have already rolled.");
         s.pending = s.pending.filter((m) => !(m.id === msg.id && m.playerId === p.id));
         await this.save();
         return this.broadcast();
@@ -409,6 +426,18 @@ export class Campaign extends DurableObject<Env> {
         if (pin && !/^\d{4,6}$/.test(pin)) throw new Error("The host PIN must be 4 to 6 digits.");
         s.hostPin = pin || null;
         if (att.role === "screen") ws.serializeAttachment({ ...att, unlocked: true } satisfies Attachment);
+        await this.save();
+        return this.broadcast();
+      }
+
+      case "set_ability_kind": {
+        needPlayer();
+        const c = myCharacter();
+        const ab = c?.abilities.find((a) => a.name === msg.name);
+        if (!c || !ab) throw new Error("Your character doesn't have that ability.");
+        if (!["effect", "boost", "passive"].includes(msg.kind)) throw new Error("Unknown ability type.");
+        ab.kind = msg.kind;
+        ab.boostStat = msg.kind === "boost" && msg.boostStat && (STATS as readonly string[]).includes(msg.boostStat) ? msg.boostStat : undefined;
         await this.save();
         return this.broadcast();
       }
@@ -596,7 +625,9 @@ export class Campaign extends DurableObject<Env> {
       .slice(0, MAX_ABILITIES)
       .map((a) => {
         const uses = Math.max(0, Math.min(3, Math.round(Number(a.usesPerRest) || 0)));
-        return { name: a.name.trim().slice(0, 40), description: a.description.trim().slice(0, 240), usesPerRest: uses, usesLeft: uses };
+        const kind = a.kind && ["effect", "boost", "passive"].includes(a.kind) ? a.kind : uses === 0 ? "passive" : "effect";
+        const boostStat = kind === "boost" && a.boostStat && (STATS as readonly string[]).includes(a.boostStat) ? a.boostStat : undefined;
+        return { name: a.name.trim().slice(0, 40), description: a.description.trim().slice(0, 240), usesPerRest: uses, usesLeft: uses, kind, boostStat };
       });
     const inventory: Item[] = (input.items ?? [])
       .map((line) => String(line).trim())
@@ -620,6 +651,7 @@ export class Campaign extends DurableObject<Env> {
       abilities,
       inventory,
       conditions: [],
+      effects: [],
       ownerId: null,
       pin: pin || null,
     };
@@ -698,6 +730,7 @@ export class Campaign extends DurableObject<Env> {
         health: c.health,
         maxHealth: c.maxHealth,
         conditions: c.conditions,
+        effects: (c.effects ?? []).map((e) => `${e.name}: advantage on ${e.stat ?? "next roll"}`),
         playerName: s.players.find((p) => p.id === c.ownerId)?.name ?? null,
         online: !!c.ownerId && online.has(c.ownerId),
         hasPin: !!c.pin,
@@ -745,7 +778,10 @@ export class Campaign extends DurableObject<Env> {
             pending: s.pending.filter((m) => !m.whisperTo || m.whisperTo === charId),
           }
         : {};
-      this.send(ws, { t: "state", view: { ...view, ...personal, canControl: this.canControl(a, player) }, you: this.youView(a.playerId) });
+      const out = { ...view, ...personal, canControl: this.canControl(a, player) };
+      out.pending = out.pending.map(({ preRoll, ...m }) => m); // locked dice stay on the server
+      out.log = out.log.map(({ preRoll, ...m }) => m);
+      this.send(ws, { t: "state", view: out, you: this.youView(a.playerId) });
     }
   }
 

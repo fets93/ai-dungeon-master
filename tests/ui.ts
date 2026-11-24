@@ -78,6 +78,19 @@ async function main() {
   for (let i = 0; i < 4; i++) await anna.click('button[aria-label="Raise strength"]');
   for (let i = 0; i < 4; i++) await anna.click('button[aria-label="Raise stamina"]');
   await anna.type('input[aria-label="Ability name"]', "Master Key");
+  await clickText(anna, "+ Add ability");
+  const names = await anna.$$('input[aria-label="Ability name"]');
+  await names[1].type("Wiggle Moustache");
+  const descs = await anna.$$('textarea[aria-label="What it does"]');
+  await descs[1].type("A charming wiggle that makes people more agreeable.");
+  await anna.evaluate(() => {
+    const cards = document.querySelectorAll(".ability");
+    ([...cards[1].querySelectorAll(".kinds button")].find((b) => b.textContent === "Boost") as HTMLButtonElement).click();
+  });
+  await sleep(100);
+  await anna.select('select[aria-label="Boosted stat"]', "charm");
+  await anna.evaluate(() => document.querySelectorAll(".ability")[1].scrollIntoView());
+  await shot(anna, "22-phone-ability-types");
   await anna.type('textarea[aria-label="What it does"]', "Opens any ordinary mechanical lock in a few seconds. Not magical locks.");
   const items = await anna.$$("input.item");
   await items[0].type("Lockpicks");
@@ -160,9 +173,14 @@ async function main() {
   await clickText(anna, "Master Key");
   await anna.type("textarea", "on the cellar door");
   await shot(anna, "20-phone-ability");
-  await clickText(anna, "Add");
+  await clickText(anna, "Cast ✨");
   await waitText(screen, "[Master Key] on the cellar door");
   console.log("PASS  ability appears in the conversation");
+  const castDice = await anna.waitForFunction(() => document.querySelector(".dice.landed")?.textContent?.includes("Locked in"), { timeout: 5000 }).then(() => true).catch(() => false);
+  console.log(castDice ? "PASS  casting rolls the die on the phone right away" : "FAIL  no dice when casting");
+  await shot(anna, "21-phone-cast-dice");
+  const castChip = await screen.evaluate(() => [...document.querySelectorAll(".cast")].some((e) => /🎲 \d+/.test(e.textContent ?? "")));
+  console.log(castChip ? "PASS  cast roll shown next to the message on the main screen" : "FAIL  no cast roll on the main screen");
   await clickText(anna, "Send to DM");
   await sleep(1500);
 

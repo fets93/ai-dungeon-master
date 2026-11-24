@@ -6,11 +6,21 @@ export type Stat = (typeof STATS)[number];
 export type Mode = "narration" | "conversation" | "combat";
 export type Strictness = "casual" | "standard" | "hardcore";
 
+export type AbilityKind = "effect" | "boost" | "passive";
+
 export interface Ability {
   name: string;
   description: string;
   usesPerRest: number; // 0 = unlimited
   usesLeft: number;
+  kind?: AbilityKind; // effect: does something (rolls on cast) · boost: advantage on the next roll of boostStat · passive: always on
+  boostStat?: Stat; // for boosts: which kind of roll gets advantage
+}
+
+// An active boost: advantage on the character's next roll with that stat (any stat if null).
+export interface ActiveEffect {
+  name: string;
+  stat: Stat | null;
 }
 
 export interface Item {
@@ -35,6 +45,7 @@ export interface Character {
   readyMade?: boolean;
   present?: boolean; // owner is connected right now (set by the server)
   avatarVersion?: number; // > 0 when a portrait is stored; bumps on every change (cache busting)
+  effects?: ActiveEffect[];
 }
 
 export type VoiceGender = "male" | "female" | "neutral";
@@ -59,6 +70,8 @@ export interface Npc {
   attitude: string;
   memory: string[];
   voice?: NpcVoice;
+  stats?: Record<NpcStat, number>; // 6-18, 10 average
+  disposition?: Disposition;
 }
 
 export interface Enemy {
@@ -78,17 +91,24 @@ export interface Message {
   whisperTo?: string; // character id: message visible only to that character's player
   ability?: string; // the player used the "Use ability" button with this ability
   roll?: RollData; // structured dice result, for the dice animation
+  preRoll?: number[]; // two d20s rolled and locked when an ability is cast (server only)
+  castRoll?: number; // the first of them, shown to everyone right away
 }
 
 export interface RollData {
   characterId: string | null; // the character who rolled, or null for an enemy roll
   targetId?: string | null; // the character an enemy attack is aimed at
   label: string; // "Veyra: agility" or "Dock Thug attacks Veyra"
-  d20: number;
+  d20: number; // the die that counts
+  dice?: number[]; // both dice with advantage/disadvantage
+  edge?: "advantage" | "disadvantage";
   mod: number;
   total: number;
   dc: number;
   success: boolean;
+  degree?: "great" | "success" | "failure" | "bad"; // beat or missed the DC by 5+
+  cast?: boolean; // only the locked roll at casting time: no DC yet
+  preRolled?: boolean; // the dice were already shown at casting time
 }
 
 export interface Player {
@@ -150,6 +170,8 @@ export interface Ruling {
   reason: string;
   stat?: Stat;
   dc?: number;
+  opposedBy?: { npcId: string; stat: NpcStat }; // the DC comes from an NPC's stat and disposition
+  edge?: "advantage" | "disadvantage"; // from circumstances: help, conditions, position
   usesAbility?: string;
   usesItem?: string;
   consumesItem?: boolean;
@@ -174,6 +196,7 @@ export interface PublicCharacter {
   health: number;
   maxHealth: number;
   conditions: string[];
+  effects: string[];
   playerName: string | null;
   online: boolean;
   hasPin: boolean;
@@ -228,7 +251,7 @@ export interface NewCharacterInput {
   concept: string;
   backstory: string;
   stats: Record<Stat, number>;
-  abilities: { name: string; description: string; usesPerRest: number }[];
+  abilities: { name: string; description: string; usesPerRest: number; kind?: AbilityKind; boostStat?: Stat }[];
   items: string[]; // "2x Healing potion" or "Rope"
   pin: string;
   avatar?: string | null; // data:image/jpeg;base64,… already resized on the phone
@@ -247,6 +270,7 @@ export type ClientMsg =
   | { t: "remove_character"; characterId: string; deleteIt: boolean }
   | { t: "say"; text: string; aloud: boolean; whisper?: boolean; ability?: string }
   | { t: "set_style"; style: NarrationStyle; styleNote: string }
+  | { t: "set_ability_kind"; name: string; kind: AbilityKind; boostStat?: Stat }
   | { t: "unlock"; pin: string }
   | { t: "set_host_pin"; pin: string | null }
   | { t: "undo_turn" }
@@ -307,6 +331,15 @@ export const inviteUrl = (origin: string, code: string) => `${origin}/join/${cod
 export const avatarUrl = (code: string, c: { id: string; avatarVersion?: number }) =>
   c.avatarVersion ? `/api/avatar/${code}/${encodeURIComponent(c.id)}?v=${c.avatarVersion}` : null;
 
-export const modifier = (score: number) => Math.floor((score - 10) / 2);
-export const maxHealthFor = (stamina: number) => 14 + 2 * modifier(stamina);
+// Every point of a stat counts: 16 = +6, 14 = +4, 8 = -2. Stats outweigh the d20's luck more
+// than classic D&D (where 16 = +3), while a natural 20 still always succeeds.
+export const modifier = (score: number) => score - 10;
+// Health keeps the gentler classic curve, so stamina doesn't create huge health pools.
+export const maxHealthFor = (stamina: number) => 14 + 2 * Math.floor((stamina - 10) / 2);
+
+export type Disposition = "hostile" | "unfriendly" | "neutral" | "friendly" | "allied";
+// Added to the difficulty when a player tries to sway an NPC.
+export const DISPOSITION_MOD: Record<Disposition, number> = { hostile: 6, unfriendly: 3, neutral: 0, friendly: -3, allied: -6 };
+export const NPC_STATS = ["strength", "agility", "intelligence", "wisdom", "charm"] as const;
+export type NpcStat = (typeof NPC_STATS)[number];
 export const statPointsUsed = (stats: Record<Stat, number>) => STATS.reduce((sum, k) => sum + (stats[k] - STAT_BASE), 0);

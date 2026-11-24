@@ -58,6 +58,23 @@
   $effect(() => {
     if (game.view) dice.feed(game.view.log);
   });
+  const seenCasts = new Set<number>();
+  let castsPrimed = false;
+  $effect(() => {
+    const view = game.view;
+    if (!view) return;
+    const casts = view.pending.filter((m) => m.castRoll);
+    if (!castsPrimed) {
+      casts.forEach((m) => seenCasts.add(m.id));
+      castsPrimed = true;
+      return;
+    }
+    for (const m of casts)
+      if (!seenCasts.has(m.id)) {
+        seenCasts.add(m.id);
+        dice.push({ characterId: null, label: `${m.speaker} casts ${m.ability}`, d20: m.castRoll!, mod: 0, total: m.castRoll!, dc: 0, success: true, cast: true });
+      }
+  });
 
   // Suggest a recap when a running campaign is opened after a break.
   let recapDismissed = $state(false);
@@ -255,8 +272,11 @@
               <button class="ghost tiny" hidden={!v.canControl} title="Take {c.name} off the table" aria-label="Take {c.name} off the table" onclick={() => removeChar(c, false)}>×</button>
             </div>
             <HealthBar health={c.health} max={c.maxHealth} />
-            {#if c.conditions.length}
-              <div class="row wrap">{#each c.conditions as cond}<span class="chip bad">{cond}</span>{/each}</div>
+            {#if c.conditions.length || c.effects.length}
+              <div class="row wrap">
+                {#each c.conditions as cond}<span class="chip bad">{cond}</span>{/each}
+                {#each c.effects as fx}<span class="chip gold">✨ {fx}</span>{/each}
+              </div>
             {/if}
           </div>
         {/each}

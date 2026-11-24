@@ -20,6 +20,12 @@ export class DiceQueue {
     if (!this.current) this.next();
   }
 
+  // Rolls that aren't in the log yet (a cast ability's locked die).
+  push(roll: RollData) {
+    this.queue.push(roll);
+    if (!this.current) this.next();
+  }
+
   next = () => {
     this.current = this.queue.shift() ?? null;
   };

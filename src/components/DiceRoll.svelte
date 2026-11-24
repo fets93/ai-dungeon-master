@@ -9,13 +9,15 @@
   let landed = $state(false);
 
   $effect(() => {
+    // Dice already seen when the ability was cast land right away; new dice tumble first.
+    const tumble = roll.preRolled ? 0 : 1300;
     const spin = setInterval(() => (face = 1 + Math.floor(Math.random() * 20)), 70);
     const land = setTimeout(() => {
       clearInterval(spin);
       face = roll.d20;
       landed = true;
-    }, 1300);
-    const close = setTimeout(onDone, 4300);
+    }, tumble);
+    const close = setTimeout(onDone, tumble + (roll.cast ? 2600 : 3200));
     return () => {
       clearInterval(spin);
       clearTimeout(land);
@@ -26,11 +28,15 @@
   const crit = $derived(roll.d20 === 20 ? "Natural 20!" : roll.d20 === 1 ? "Natural 1!" : "");
   // Enemy attacks: a "success" for the enemy means a hit on the player.
   const enemy = $derived(roll.characterId === null);
-  const verdict = $derived(enemy ? (roll.success ? "Hit!" : "Miss") : roll.success ? "Success" : "Failure");
+  const verdict = $derived(
+    enemy
+      ? roll.success ? "Hit!" : "Miss"
+      : roll.degree === "great" ? "Great success!" : roll.degree === "bad" ? "Bad failure" : roll.success ? "Success" : "Failure",
+  );
   const good = $derived(enemy ? !roll.success : roll.success);
 </script>
 
-<button class="dice" class:big class:landed class:good={landed && good} class:bad={landed && !good} onclick={onDone} aria-live="polite">
+<button class="dice" class:big class:landed class:good={landed && !roll.cast && good} class:bad={landed && !roll.cast && !good} onclick={onDone} aria-live="polite">
   <div class="label">{roll.label}</div>
   <div class="die" aria-hidden={!landed}>
     <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -39,7 +45,14 @@
     </svg>
     <span class="num">{face}</span>
   </div>
-  {#if landed}
+  {#if landed && roll.cast}
+    <div class="math">Locked in. The DM sets the difficulty when you send.</div>
+  {:else if landed}
+    {#if roll.dice}
+      <div class="edge small">{roll.edge === "advantage" ? "Advantage: higher die counts" : "Disadvantage: lower die counts"}
+        {#each roll.dice as d, i}<span class="pip" class:kept={d === roll.d20 && roll.dice.indexOf(d) === i}>{d}</span>{/each}
+      </div>
+    {/if}
     <div class="math">{roll.d20} {roll.mod >= 0 ? "+" : "−"} {Math.abs(roll.mod)} = <b>{roll.total}</b> vs {roll.dc}</div>
     <div class="verdict">{crit ? `${crit} ` : ""}{verdict}</div>
   {:else}
@@ -128,6 +141,30 @@
   }
   .math {
     font-size: 0.95rem;
+  }
+  .edge {
+    color: var(--gold);
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .pip {
+    display: inline-grid;
+    place-items: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    text-decoration: line-through;
+  }
+  .pip.kept {
+    border-color: var(--gold);
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 700;
   }
   .verdict {
     font-family: var(--serif);
