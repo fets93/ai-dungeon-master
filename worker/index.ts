@@ -192,7 +192,7 @@ export default {
         const code = parts[3].toUpperCase();
         const stub = env.CAMPAIGN.get(env.CAMPAIGN.idFromName(code));
         const t = Number(url.searchParams.get("t"));
-        if (t) {
+        if (t) try {
           const { undo } = await stub.pitrSchedule(t);
           await stub.pitrRestart().catch(() => {});
           await new Promise((r) => setTimeout(r, 500));
@@ -217,6 +217,8 @@ export default {
           }
           await fresh.pitrPurge();
           return json({ saved, skipped });
+        } catch (e) {
+          return json({ failed: String((e as Error)?.stack ?? e) });
         }
         return json({ error: "Pass t" }, 400);
       }
