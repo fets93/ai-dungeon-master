@@ -163,30 +163,6 @@ export class Campaign extends DurableObject<Env> {
     return this.s;
   }
 
-  // ---- One-off recovery of a deleted campaign's characters (Cloudflare point-in-time recovery) ----
-  async pitrSchedule(time: number): Promise<{ undo: string }> {
-    const bookmark = await this.ctx.storage.getBookmarkForTime(time);
-    const undo = await this.ctx.storage.onNextSessionRestoreBookmark(bookmark);
-    return { undo };
-  }
-  async pitrRestart(): Promise<void> {
-    this.ctx.abort("restoring");
-  }
-  async pitrCharacters(): Promise<{ title: string; characters: Character[]; avatars: Record<string, string> } | null> {
-    if (!this.s) return null;
-    const avatars: Record<string, string> = {};
-    for (const c of this.s.characters) {
-      const a = await this.ctx.storage.get<string>(`avatar:${c.id}`);
-      if (a) avatars[c.id] = a;
-    }
-    return { title: this.s.config.title, characters: this.s.characters, avatars };
-  }
-  async pitrPurge(): Promise<void> {
-    for (const ws of this.ctx.getWebSockets()) ws.close(1000, "Campaign deleted");
-    await this.ctx.storage.deleteAll();
-    this.s = null;
-  }
-
   async wipe() {
     // Roster characters leave with their latest state: deleting a campaign never deletes them.
     for (const c of this.s?.characters.filter((x) => x.rosterId) ?? []) await roster(this.env).release(this.s!.code, c).catch(() => {});

@@ -183,45 +183,6 @@ export default {
         // The URL carries ?v=<version>, so a cached copy never goes stale.
         return new Response(bytes, { headers: { "content-type": type, "cache-control": "public, max-age=31536000, immutable" } });
       }
-      // One-off: bring the characters of a deleted campaign back as saved characters.
-      // GET /api/admin/recover/CODE?key=..&t=<ms>[&save=1&pin=1234]
-      if (parts[0] === "api" && parts[1] === "admin" && parts[2] === "recover" && parts[3]) {
-        const key = url.searchParams.get("key") ?? "";
-        const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)))].map((b) => b.toString(16).padStart(2, "0")).join("");
-        if (digest !== "488b5a09d1c15bdc6d62c062343bee0b4e59ae4b7c16c2ac40919b8810f4c262") return json({ error: "Forbidden" }, 403);
-        const code = parts[3].toUpperCase();
-        const stub = env.CAMPAIGN.get(env.CAMPAIGN.idFromName(code));
-        const t = Number(url.searchParams.get("t"));
-        if (t) try {
-          const { undo } = await stub.pitrSchedule(t);
-          await stub.pitrRestart().catch(() => {});
-          await new Promise((r) => setTimeout(r, 500));
-          const fresh = env.CAMPAIGN.get(env.CAMPAIGN.idFromName(code));
-          const found = await fresh.pitrCharacters();
-          if (!found) return json({ restoredTo: new Date(t).toISOString(), undo, found: null });
-          if (url.searchParams.get("save") !== "1")
-            return json({ restoredTo: new Date(t).toISOString(), title: found.title, characters: found.characters.map((c) => ({ name: c.name, concept: c.concept, readyMade: !!c.readyMade, hasPin: !!c.pin, avatar: !!found.avatars[c.id], health: c.health, items: c.inventory.map((i) => `${i.qty}x ${i.name}`) })) });
-          const fallbackPin = url.searchParams.get("pin") ?? "";
-          const saved: string[] = [];
-          const skipped: string[] = [];
-          for (const c of found.characters.filter((x) => !x.readyMade && !x.rosterId)) {
-            const pin = c.pin || fallbackPin;
-            const id = `r-${crypto.randomUUID().slice(0, 8)}`;
-            try {
-              await roster(env).create({ ...c, id, rosterId: id, pin: null, avatarVersion: 0 }, pin, null as unknown as string, null as unknown as string);
-              if (found.avatars[c.id]) await roster(env).setAvatar(id, found.avatars[c.id]);
-              saved.push(`${c.name} (PIN ${c.pin ? "unchanged" : fallbackPin})`);
-            } catch (e) {
-              skipped.push(`${c.name}: ${(e as Error).message}`);
-            }
-          }
-          await fresh.pitrPurge();
-          return json({ saved, skipped });
-        } catch (e) {
-          return json({ failed: String((e as Error)?.stack ?? e) });
-        }
-        return json({ error: "Pass t" }, 400);
-      }
       if (parts[0] === "api" && parts[1] === "roster") {
         if (parts.length === 2 && request.method === "GET") return json(await roster(env).list());
         if (parts.length === 3 && request.method === "DELETE") {
