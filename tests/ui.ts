@@ -95,6 +95,9 @@ async function main() {
   const items = await anna.$$("input.item");
   await items[0].type("Lockpicks");
   await items[1].type("2x Healing potion");
+  const disabledWithoutPin = await anna.evaluate(() => ([...document.querySelectorAll("button")].find((x) => x.textContent === "Create character") as HTMLButtonElement).disabled);
+  console.log(disabledWithoutPin ? "PASS  can't create a character without a PIN" : "FAIL  created without PIN");
+  await anna.type("#pin", "1234");
   await shot(anna, "04-phone-character-form");
   await clickText(anna, "Create character");
   await waitText(anna, "You're the host");
@@ -212,9 +215,44 @@ async function main() {
   await waitText(screen, "Continue");
   await shot(screen, "14-hub-library");
 
+  // A second campaign: Thorin is saved and can come along, moved or copied.
+  const { code: code2 } = (await (await fetch(`${BASE}/api/campaigns`, { method: "POST", body: JSON.stringify({ prompt: "second" }) })).json()) as { code: string };
+  const carla = await newPage(390, 844, true);
+  await carla.goto(`${BASE}/#/play/${code2}`);
+  await carla.waitForSelector("#pname");
+  await carla.type("#pname", "Anna");
+  await clickText(carla, "Join as player");
+  await waitText(carla, "Saved characters", 8000);
+  await waitText(carla, "Guests");
+  await shot(carla, "30-phone-saved-characters");
+  await carla.evaluate(() => {
+    const card = [...document.querySelectorAll(".pick")].find((c) => c.textContent?.includes("Thorin"));
+    (card?.querySelector("button") as HTMLButtonElement).click();
+  });
+  await carla.waitForSelector('input[aria-label="PIN for Thorin"]');
+  await carla.type('input[aria-label="PIN for Thorin"]', "1234");
+  await clickText(carla, "Unlock");
+  await waitText(carla, "Make a copy", 5000);
+  await shot(carla, "31-phone-move-or-copy");
+  console.log("PASS  a character in another campaign asks: move or copy");
+  await carla.evaluate(() => ((document.querySelector('input[aria-label="Name for the copy"]') as HTMLInputElement).value = ""));
+  await carla.type('input[aria-label="Name for the copy"]', "Thorin the Younger");
+  await clickText(carla, "Make a copy");
+  await waitText(carla, "Exploration", 5000);
+  const hasPortrait = await carla.$("header img.av").then((x) => !!x);
+  console.log(hasPortrait ? "PASS  the copy plays, portrait included" : "FAIL  copy without portrait");
+  await screen.goto(BASE);
+  await waitText(screen, "Thorin the Younger", 5000);
+  await screen.evaluate(() => [...document.querySelectorAll("h2")].find((h) => h.textContent === "Characters")?.scrollIntoView());
+  await shot(screen, "32-hub-characters");
+  console.log("PASS  the library lists saved characters");
+
   console.log(consoleErrors.length ? `Console errors:\n${consoleErrors.join("\n")}` : "PASS  no console errors");
   await browser.close();
   await fetch(`${BASE}/api/campaigns/${code}`, { method: "DELETE" });
+  await fetch(`${BASE}/api/campaigns/${code2}`, { method: "DELETE" });
+  for (const r of (await (await fetch(`${BASE}/api/roster`)).json()) as { id: string }[])
+    await fetch(`${BASE}/api/roster/${r.id}`, { method: "DELETE", body: JSON.stringify({ pin: "1234" }) });
 }
 
 main().catch(async (e) => {

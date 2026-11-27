@@ -46,6 +46,18 @@ export interface Character {
   present?: boolean; // owner is connected right now (set by the server)
   avatarVersion?: number; // > 0 when a portrait is stored; bumps on every change (cache busting)
   effects?: ActiveEffect[];
+  rosterId?: string; // a lasting character from the group's roster (same id); absent = guest/campaign-only
+}
+
+// A character in the group's roster, as everyone may see it.
+export interface RosterSummary {
+  id: string;
+  name: string;
+  concept: string;
+  avatarVersion: number;
+  campaignCode: string | null; // the campaign it is currently in
+  campaignTitle: string | null;
+  updatedAt: number;
 }
 
 export type VoiceGender = "male" | "female" | "neutral";
@@ -201,6 +213,7 @@ export interface PublicCharacter {
   online: boolean;
   hasPin: boolean;
   readyMade: boolean;
+  roster: boolean;
   avatarVersion: number;
 }
 
@@ -262,6 +275,7 @@ export type ClientMsg =
   | { t: "hello"; role: "phone"; token?: string }
   | { t: "join"; name: string }
   | { t: "claim"; characterId: string; pin?: string }
+  | { t: "claim_roster"; rosterId: string; pin: string; mode?: "move" | "copy"; copyName?: string }
   | { t: "create_character"; character: NewCharacterInput }
   | { t: "spectate" }
   | { t: "leave_character" }
@@ -286,6 +300,7 @@ export type ClientMsg =
 export type ServerMsg =
   | { t: "state"; view: PublicView; you: YouView | null }
   | { t: "welcome"; token: string }
+  | { t: "roster_conflict"; rosterId: string; name: string; campaignTitle: string; campaignCode: string }
   | { t: "unknown_token" }
   | { t: "error"; message: string };
 
@@ -328,6 +343,8 @@ export const AVATAR_SIZE = 320; // px, square
 export const AVATAR_MAX_BYTES = 200_000; // data URL length limit, far above a 320px JPEG
 // Invite link: a real path (not #/play/…) so chat apps can show the campaign's title and description.
 export const inviteUrl = (origin: string, code: string) => `${origin}/join/${code}`;
+export const rosterAvatarUrl = (r: { id: string; avatarVersion?: number }) =>
+  r.avatarVersion ? `/api/roster/avatar/${encodeURIComponent(r.id)}?v=${r.avatarVersion}` : null;
 export const avatarUrl = (code: string, c: { id: string; avatarVersion?: number }) =>
   c.avatarVersion ? `/api/avatar/${code}/${encodeURIComponent(c.id)}?v=${c.avatarVersion}` : null;
 

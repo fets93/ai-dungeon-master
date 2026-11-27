@@ -3,16 +3,18 @@
 import type { CampaignConfig, GameState, Strictness } from "../shared/types";
 import { Campaign } from "./campaign";
 import { Registry } from "./registry";
+import { Roster } from "./roster";
 import { APP_VERSION } from "../shared/version";
 import { credits, listVoices, synthesize, voiceConfigured } from "./voice";
 import type { VoicesResponse } from "../shared/types";
 
-export { Campaign, Registry };
+export { Campaign, Registry, Roster };
 
 export interface Env {
   ASSETS: Fetcher;
   CAMPAIGN: DurableObjectNamespace<Campaign>;
   REGISTRY: DurableObjectNamespace<Registry>;
+  ROSTER: DurableObjectNamespace<Roster>;
   ANTHROPIC_API_KEY?: string;
   MOCK_LLM?: string;
   DM_MODEL?: string;
@@ -22,6 +24,7 @@ export interface Env {
 }
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I or O, so codes are not confused with 1 and 0
+export const roster = (env: Env) => env.ROSTER.get(env.ROSTER.idFromName("global"));
 const registry = (env: Env) => env.REGISTRY.get(env.REGISTRY.idFromName("global"));
 const campaign = (env: Env, code: string) => env.CAMPAIGN.get(env.CAMPAIGN.idFromName(code));
 const json = (data: unknown, status = 200) => Response.json(data, { status });
@@ -66,7 +69,12 @@ async function api(request: Request, env: Env, path: string[]): Promise<Response
     if (!state?.config || !Array.isArray(state.characters)) return json({ error: "Not a campaign export file." }, 400);
     const code = await newCode(env);
     const { avatars, ...rest } = state as GameState & { avatars?: Record<string, string> };
-    const summary = await campaign(env, code).init(code, readConfig(state.config), { ...rest, config: readConfig(state.config), pending: [] }, avatars);
+    // Imported characters become this campaign's own: the roster originals stay untouched.
+    const ids = new Map(rest.characters.map((c) => [c.id, c.rosterId ? `c-${crypto.randomUUID().slice(0, 8)}` : c.id]));
+    rest.characters = rest.characters.map((c) => ({ ...c, rosterId: undefined, id: ids.get(c.id)! }));
+    for (const p of rest.players ?? []) p.characterId = p.characterId ? (ids.get(p.characterId) ?? null) : null;
+    const pictures = Object.fromEntries(Object.entries(avatars ?? {}).map(([id, a]) => [ids.get(id) ?? id, a]));
+    const summary = await campaign(env, code).init(code, readConfig(state.config), { ...rest, config: readConfig(state.config), pending: [] }, pictures);
     await registry(env).upsert(summary);
     return json({ code }, 201);
   }
@@ -174,6 +182,28 @@ export default {
         const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
         // The URL carries ?v=<version>, so a cached copy never goes stale.
         return new Response(bytes, { headers: { "content-type": type, "cache-control": "public, max-age=31536000, immutable" } });
+      }
+      if (parts[0] === "api" && parts[1] === "roster") {
+        if (parts.length === 2 && request.method === "GET") return json(await roster(env).list());
+        if (parts.length === 3 && request.method === "DELETE") {
+          const body = (await request.json().catch(() => ({}))) as { pin?: string };
+          const id = decodeURIComponent(parts[2]);
+          const entry = (await roster(env).list()).find((r) => r.id === id);
+          if (!entry) return json({ error: "No such character." }, 404);
+          if (entry.campaignCode) return json({ error: `${entry.name} is in "${entry.campaignTitle}". Remove them from that campaign first.` }, 409);
+          try {
+            await roster(env).remove(id, String(body.pin ?? ""));
+          } catch (e) {
+            return json({ error: (e as Error).message }, 403);
+          }
+          return json({ ok: true });
+        }
+        if (parts[2] === "avatar" && parts[3]) {
+          const dataUrl = await roster(env).getAvatar(decodeURIComponent(parts[3]));
+          if (!dataUrl) return new Response("Not found", { status: 404 });
+          const [, type, b64] = dataUrl.match(/^data:(image\/[a-z]+);base64,(.+)$/)!;
+          return new Response(Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0)), { headers: { "content-type": type, "cache-control": "public, max-age=31536000, immutable" } });
+        }
       }
       if (parts[0] === "api" && parts[1] === "voices") return await voicesApi(env);
       if (parts[0] === "api" && parts[1] === "tts") return await ttsApi(env, ctx, parts);

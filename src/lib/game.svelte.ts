@@ -10,6 +10,8 @@ export class GameConnection {
   connected = $state(false);
   needsJoin = $state(false);
   error = $state<string | null>(null);
+  // Set when a picked roster character is already in another campaign: move it or copy it.
+  conflict = $state<Extract<ServerMsg, { t: "roster_conflict" }> | null>(null);
   notFound = $state(false);
 
   private ws: WebSocket | null = null;
@@ -71,6 +73,7 @@ export class GameConnection {
       case "state":
         this.view = m.view;
         this.you = m.you;
+        if (m.you?.character) this.conflict = null;
         if (m.you) this.needsJoin = false;
         break;
       case "welcome":
@@ -79,6 +82,9 @@ export class GameConnection {
       case "unknown_token":
         localStorage.removeItem(tokenKey(this.code));
         this.needsJoin = true;
+        break;
+      case "roster_conflict":
+        this.conflict = m;
         break;
       case "error":
         this.error = m.message;

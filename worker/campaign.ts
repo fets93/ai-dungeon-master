@@ -32,7 +32,7 @@ import { generateStory, opening, recap, sendToDm } from "./game/engine";
 import { makeLlm } from "./game/llm";
 import { premadeCharacters } from "./game/premades";
 import { activeCombatantId, rollD20 } from "./game/rules";
-import type { Env } from "./index";
+import { roster, type Env } from "./index";
 
 interface Attachment {
   role: "screen" | "phone";
@@ -51,6 +51,7 @@ export class Campaign extends DurableObject<Env> {
   private s: GameState | null = null;
   private busy = false;
   private canUndo = false;
+  private synced = new Map<string, string>(); // roster character id -> last state sent to the roster
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -163,6 +164,8 @@ export class Campaign extends DurableObject<Env> {
   }
 
   async wipe() {
+    // Roster characters leave with their latest state: deleting a campaign never deletes them.
+    for (const c of this.s?.characters.filter((x) => x.rosterId) ?? []) await roster(this.env).release(this.s!.code, c).catch(() => {});
     for (const ws of this.ctx.getWebSockets()) ws.close(1000, "Campaign deleted");
     await this.ctx.storage.deleteAll();
     this.s = null;
@@ -213,7 +216,7 @@ export class Campaign extends DurableObject<Env> {
     return this.ctx.getWebSockets().filter((ws) => !this.gone.has(ws) && ws.readyState === 1);
   }
 
-  private async handle(ws: WebSocket, msg: ClientMsg) {
+  private async handle(ws: WebSocket, msg: ClientMsg): Promise<unknown> {
     const s = this.s!;
     const att = (ws.deserializeAttachment() ?? { role: "phone" }) as Attachment;
     const player = att.playerId ? s.players.find((p) => p.id === att.playerId) : undefined;
@@ -266,7 +269,8 @@ export class Campaign extends DurableObject<Env> {
         const p = needPlayer();
         const c = s.characters.find((x) => x.id === msg.characterId);
         if (!c) throw new Error("That character does not exist.");
-        if (c.pin && c.pin !== String(msg.pin ?? "")) throw new Error("Wrong PIN for this character.");
+        if (c.rosterId ? !(await roster(this.env).checkPin(c.rosterId, String(msg.pin ?? ""))) : c.pin && c.pin !== String(msg.pin ?? ""))
+          throw new Error("Wrong PIN for this character.");
         if (c.ownerId && c.ownerId !== p.id && this.onlinePlayerIds().has(c.ownerId)) {
           const owner = s.players.find((x) => x.id === c.ownerId);
           throw new Error(`${c.name} is already being played by ${owner?.name ?? "someone"}.`);
@@ -284,6 +288,12 @@ export class Campaign extends DurableObject<Env> {
       case "create_character": {
         const p = needPlayer();
         const c = this.buildCharacter(msg.character);
+        const pin = String(msg.character.pin ?? "").trim();
+        if (!/^\d{4}$/.test(pin)) throw new Error("Choose a 4-digit PIN for your character.");
+        c.id = `r-${crypto.randomUUID().slice(0, 8)}`;
+        c.rosterId = c.id;
+        c.pin = null; // the roster keeps the PIN (hashed)
+        await roster(this.env).create(c, pin, s.code, s.config.title);
         if (msg.character.avatar) await this.storeAvatar(c, msg.character.avatar);
         this.releaseCharacter(p);
         c.ownerId = p.id;
@@ -292,6 +302,46 @@ export class Campaign extends DurableObject<Env> {
         s.characters.push(c);
         if (s.started) s.introductions.push(c.id);
         this.event(`${c.name} joins the table (${p.name}).`, "join");
+        await this.save();
+        return this.broadcast();
+      }
+
+      case "claim_roster": {
+        const p = needPlayer();
+        const pin = String(msg.pin ?? "");
+        const local = s.characters.find((x) => x.id === msg.rosterId);
+        if (local && msg.mode !== "copy") {
+          // Already in this campaign: same as picking it here.
+          return this.handle(ws, { t: "claim", characterId: local.id, pin });
+        }
+        let c: Character;
+        if (msg.mode === "copy") {
+          c = await roster(this.env).copy(msg.rosterId, pin, String(msg.copyName ?? ""), s.code, s.config.title);
+        } else {
+          const res = await roster(this.env).checkout(msg.rosterId, pin, s.code, s.config.title, msg.mode === "move");
+          if (!res.ok) {
+            if (res.reason === "pin") throw new Error("Wrong PIN for this character.");
+            if (res.reason === "missing") throw new Error("That character no longer exists.");
+            const r = (await roster(this.env).list()).find((x) => x.id === msg.rosterId)!;
+            return this.send(ws, { t: "roster_conflict", rosterId: msg.rosterId, name: r.name, campaignTitle: res.campaignTitle ?? "", campaignCode: res.campaignCode ?? "" });
+          }
+          c = res.character;
+          // The campaign it came from loses it (its latest state is already in the roster).
+          if (res.movedFrom) await this.env.CAMPAIGN.get(this.env.CAMPAIGN.idFromName(res.movedFrom)).dropRosterCharacter(c.id, s.config.title).catch(() => {});
+        }
+        c.rosterId = c.id;
+        c.pin = null;
+        if (s.characters.some((x) => x.name.toLowerCase() === c.name.toLowerCase() && x.id !== c.id))
+          throw new Error(`This campaign already has a character called ${c.name}.`);
+        this.releaseCharacter(p);
+        c.ownerId = p.id;
+        c.present = true;
+        p.characterId = c.id;
+        p.spectator = false;
+        s.characters = [...s.characters.filter((x) => x.id !== c.id), c];
+        if (s.started) s.introductions.push(c.id);
+        this.event(`${c.name} joins the table (${p.name}).`, "join");
+        this.synced.set(c.id, JSON.stringify(c));
         await this.save();
         return this.broadcast();
       }
@@ -327,8 +377,15 @@ export class Campaign extends DurableObject<Env> {
         }
         if (msg.deleteIt && !c.readyMade) {
           s.characters = s.characters.filter((x) => x !== c);
-          await this.ctx.storage.delete(`avatar:${c.id}`);
-          this.event(`${c.name} was removed from the campaign.`);
+          if (c.rosterId) {
+            // Roster characters only leave this campaign; they stay in the group's roster.
+            await roster(this.env).release(s.code, c);
+            this.synced.delete(c.id);
+            this.event(`${c.name} left the campaign (still in the roster).`);
+          } else {
+            await this.ctx.storage.delete(`avatar:${c.id}`);
+            this.event(`${c.name} was removed from the campaign.`);
+          }
         } else {
           this.event(`${c.name} left the table.`);
         }
@@ -659,6 +716,12 @@ export class Campaign extends DurableObject<Env> {
 
   // Portraits live in their own storage keys, so game updates stay small; clients load them by URL.
   private async storeAvatar(c: Character, dataUrl: string | null) {
+    if (c.rosterId) {
+      if (dataUrl && !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(dataUrl)) throw new Error("That image format isn't supported.");
+      if (dataUrl && dataUrl.length > AVATAR_MAX_BYTES) throw new Error("That image is too large.");
+      c.avatarVersion = await roster(this.env).setAvatar(c.rosterId, dataUrl);
+      return;
+    }
     if (!dataUrl) {
       await this.ctx.storage.delete(`avatar:${c.id}`);
       c.avatarVersion = 0;
@@ -671,12 +734,33 @@ export class Campaign extends DurableObject<Env> {
   }
 
   async getAvatar(characterId: string): Promise<string | null> {
-    return (await this.ctx.storage.get<string>(`avatar:${characterId}`)) ?? null;
+    const local = await this.ctx.storage.get<string>(`avatar:${characterId}`);
+    if (local) return local;
+    return this.s?.characters.find((c) => c.id === characterId)?.rosterId ? roster(this.env).getAvatar(characterId) : null;
+  }
+
+  // Another campaign took this roster character (the player moved it there).
+  async dropRosterCharacter(id: string, toTitle: string) {
+    const s = this.s;
+    const c = s?.characters.find((x) => x.id === id);
+    if (!s || !c) return;
+    const owner = s.players.find((p) => p.characterId === id);
+    if (owner) owner.characterId = null;
+    s.characters = s.characters.filter((x) => x !== c);
+    if (s.combat) s.combat.order = s.combat.order.filter((x) => x !== id);
+    this.synced.delete(id);
+    this.event(`${c.name} left for another adventure ("${toTitle}").`);
+    await this.save();
+    this.broadcast();
   }
 
   async avatarsForExport(): Promise<Record<string, string>> {
     const out: Record<string, string> = {};
     for (const [k, v] of await this.ctx.storage.list<string>({ prefix: "avatar:" })) out[k.slice(7)] = v;
+    for (const c of this.s?.characters.filter((x) => x.rosterId && x.avatarVersion) ?? []) {
+      const a = await roster(this.env).getAvatar(c.id);
+      if (a) out[c.id] = a;
+    }
     return out;
   }
 
@@ -733,7 +817,8 @@ export class Campaign extends DurableObject<Env> {
         effects: (c.effects ?? []).map((e) => `${e.name}: advantage on ${e.stat ?? "next roll"}`),
         playerName: s.players.find((p) => p.id === c.ownerId)?.name ?? null,
         online: !!c.ownerId && online.has(c.ownerId),
-        hasPin: !!c.pin,
+        hasPin: !!c.pin || !!c.rosterId,
+        roster: !!c.rosterId,
         readyMade: !!c.readyMade,
         avatarVersion: c.avatarVersion ?? 0,
       })),
@@ -792,7 +877,28 @@ export class Campaign extends DurableObject<Env> {
   }
 
   private async save() {
-    if (this.s) await this.ctx.storage.put("state", this.s);
+    if (!this.s) return;
+    await this.ctx.storage.put("state", this.s);
+    await this.syncRoster();
+  }
+
+  // Roster characters: every change in this campaign is written back, so they survive the campaign.
+  private async syncRoster() {
+    const s = this.s!;
+    for (const c of s.characters.filter((x) => x.rosterId)) {
+      const json = JSON.stringify(c);
+      if (this.synced.get(c.id) === json) continue;
+      const res = await roster(this.env).sync(s.code, c).catch(() => ({ ok: true }));
+      if (res.ok) this.synced.set(c.id, json);
+      else {
+        // It was moved to another campaign meanwhile: this campaign no longer has it.
+        const owner = s.players.find((p) => p.characterId === c.id);
+        if (owner) owner.characterId = null;
+        s.characters = s.characters.filter((x) => x !== c);
+        this.synced.delete(c.id);
+        await this.ctx.storage.put("state", s);
+      }
+    }
   }
 
   summary(): CampaignSummary {
@@ -811,5 +917,6 @@ export class Campaign extends DurableObject<Env> {
   private async updateRegistry() {
     const reg = this.env.REGISTRY.get(this.env.REGISTRY.idFromName("global"));
     await reg.upsert(this.summary());
+    if (this.s?.characters.some((c) => c.rosterId)) await roster(this.env).renameCampaign(this.s.code, this.s.config.title).catch(() => {});
   }
 }

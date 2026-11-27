@@ -9,8 +9,8 @@
   import HostControls from "../components/HostControls.svelte";
   import DiceRoll from "../components/DiceRoll.svelte";
   import { DiceQueue } from "../lib/dice.svelte";
-  import { avatarUrl } from "../../shared/types";
-  import type { NewCharacterInput, PublicCharacter } from "../../shared/types";
+  import { avatarUrl, rosterAvatarUrl } from "../../shared/types";
+  import type { NewCharacterInput, PublicCharacter, RosterSummary } from "../../shared/types";
 
   let { code }: { code: string } = $props();
   // `code` never changes for a mounted view: App re-creates the view with {#key} when it does.
@@ -42,6 +42,42 @@
   const you = $derived(game.you);
   const me = $derived(you?.character ?? null);
   const claimable = $derived(v ? v.characters.filter((c) => !c.online) : []);
+  // Characters already at this table (yours from before, or someone's who is offline), and guests.
+  const atTable = $derived(claimable.filter((c) => !c.readyMade));
+  const guests = $derived(claimable.filter((c) => c.readyMade));
+
+  // Everyone's saved characters. Ones already in this campaign show up under "At this table".
+  let roster = $state<RosterSummary[] | null>(null);
+  const loadRoster = () =>
+    fetch("/api/roster")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((r: RosterSummary[]) => (roster = r));
+  const saved = $derived((roster ?? []).filter((r) => r.campaignCode !== code));
+  let rosterPin = $state<{ id: string; pin: string } | null>(null);
+  let copyName = $state("");
+  $effect(() => {
+    if (v && you && !me && !you.spectator && roster === null) loadRoster();
+  });
+  $effect(() => {
+    if (game.conflict) copyName = `${game.conflict.name} II`;
+  });
+
+  function playSaved(r: RosterSummary, e?: Event) {
+    e?.preventDefault();
+    if (rosterPin?.id !== r.id) {
+      rosterPin = { id: r.id, pin: "" };
+      return;
+    }
+    if (!/^\d{4}$/.test(rosterPin.pin)) return;
+    game.send({ t: "claim_roster", rosterId: r.id, pin: rosterPin.pin });
+  }
+  function resolveConflict(mode: "move" | "copy") {
+    const c = game.conflict;
+    if (!c || !rosterPin) return;
+    if (mode === "copy" && !copyName.trim()) return;
+    game.send({ t: "claim_roster", rosterId: c.rosterId, pin: rosterPin.pin, mode, ...(mode === "copy" ? { copyName: copyName.trim() } : {}) });
+    game.conflict = null;
+  }
   const activeId = $derived(v?.combat?.activeId ?? null);
   const myTurn = $derived(!activeId || activeId === me?.id);
   const activeName = $derived(v?.combat?.order.find((o) => o.id === activeId)?.name ?? "");
@@ -146,26 +182,69 @@
       {#if about}<p class="about">{about}</p>{:else if v.busy}<p class="muted small"><span class="thinking">The DM is writing the story</span></p>{/if}
       <button class="primary wide" onclick={() => (creating = true)}>Create a new character</button>
 
-      {#if claimable.length}
-        <h3>Or take an existing character</h3>
-        {#each claimable as c (c.id)}
-          <div class="card pick">
-            <Avatar src={avatarUrl(code, c)} name={c.name} size={44} />
-            <div class="grow">
-              <b>{c.name}</b>
-              {#if c.readyMade}<span class="chip">ready-made</span>{/if}
-              {#if c.hasPin}<span class="chip">PIN</span>{/if}
-              <div class="small muted">{c.concept}{c.playerName ? ` · last played by ${c.playerName}` : ""}</div>
-            </div>
-            <button onclick={() => claim(c)}>Play</button>
+      {#snippet pickCard(c: PublicCharacter)}
+        <div class="card pick">
+          <Avatar src={avatarUrl(code, c)} name={c.name} size={44} />
+          <div class="grow">
+            <b>{c.name}</b>
+            {#if c.hasPin}<span class="chip">PIN</span>{/if}
+            <div class="small muted">{c.concept}{c.playerName ? ` · last played by ${c.playerName}` : ""}</div>
           </div>
-          {#if pinFor?.id === c.id}
-            <form class="row pinrow" onsubmit={(e) => { e.preventDefault(); claim(c); }}>
-              <input bind:value={pin} inputmode="numeric" maxlength="4" placeholder="PIN" aria-label="PIN for {c.name}" />
-              <button class="primary">Unlock</button>
-            </form>
+          <button onclick={() => claim(c)}>Play</button>
+        </div>
+        {#if pinFor?.id === c.id}
+          <form class="row pinrow" onsubmit={(e) => { e.preventDefault(); claim(c); }}>
+            <input bind:value={pin} inputmode="numeric" maxlength="4" placeholder="PIN" aria-label="PIN for {c.name}" />
+            <button class="primary">Unlock</button>
+          </form>
+        {/if}
+      {/snippet}
+
+      {#if atTable.length}
+        <h3>At this table</h3>
+        {#each atTable as c (c.id)}{@render pickCard(c)}{/each}
+      {/if}
+
+      {#if saved.length}
+        <h3>Saved characters</h3>
+        <p class="small muted">Saved characters keep their stats and items from campaign to campaign.</p>
+        {#each saved as r (r.id)}
+          <div class="card pick">
+            <Avatar src={rosterAvatarUrl(r)} name={r.name} size={44} />
+            <div class="grow">
+              <b>{r.name}</b>
+              <div class="small muted">{r.concept}</div>
+              <div class="small" class:muted={!r.campaignCode}>{r.campaignCode ? `In "${r.campaignTitle}"` : "Free"}</div>
+            </div>
+            <button onclick={() => playSaved(r)}>Play</button>
+          </div>
+          {#if rosterPin?.id === r.id}
+            {#if game.conflict?.rosterId === r.id}
+              <div class="card conflict">
+                <p><b>{r.name}</b> is currently in "{game.conflict.campaignTitle}".</p>
+                <button class="primary wide" onclick={() => resolveConflict("move")}>Move {r.name} here</button>
+                <p class="small muted">{r.name} leaves "{game.conflict.campaignTitle}" and arrives here rested, with everything they carry.</p>
+                <form class="row" onsubmit={(e) => { e.preventDefault(); resolveConflict("copy"); }}>
+                  <input bind:value={copyName} maxlength="40" aria-label="Name for the copy" />
+                  <button disabled={!copyName.trim()}>Make a copy</button>
+                </form>
+                <p class="small muted">The copy starts with the same stats and items and goes its own way. The original stays where it is.</p>
+                <button class="ghost wide" onclick={() => { game.conflict = null; rosterPin = null; }}>Cancel</button>
+              </div>
+            {:else}
+              <form class="row pinrow" onsubmit={(e) => playSaved(r, e)}>
+                <input bind:value={rosterPin.pin} inputmode="numeric" maxlength="4" placeholder="PIN" aria-label="PIN for {r.name}" />
+                <button class="primary" disabled={!/^\d{4}$/.test(rosterPin.pin)}>Unlock</button>
+              </form>
+            {/if}
           {/if}
         {/each}
+      {/if}
+
+      {#if guests.length}
+        <h3>Guests</h3>
+        <p class="small muted">Ready-made characters for a quick start. They stay in this campaign.</p>
+        {#each guests as c (c.id)}{@render pickCard(c)}{/each}
       {/if}
 
       <button class="ghost wide watch" onclick={() => game.send({ t: "spectate" })}>Just watch</button>
@@ -335,6 +414,14 @@
   }
   .hint {
     margin: 0.4rem 0 0;
+  }
+  .conflict {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0.25rem 0 0.75rem;
+  }
+  .conflict p {
+    margin: 0;
   }
   .pinrow {
     margin: -0.25rem 0 0.75rem;

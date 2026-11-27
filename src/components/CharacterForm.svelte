@@ -58,7 +58,7 @@
   const used = $derived(statPointsUsed(stats));
   const left = $derived(STAT_POINTS - used);
   const health = $derived(maxHealthFor(stats.stamina));
-  const valid = $derived(name.trim().length > 0 && left >= 0 && (pin === "" || /^\d{4}$/.test(pin)));
+  const valid = $derived(name.trim().length > 0 && left >= 0 && /^\d{4}$/.test(pin));
 
   const bump = (k: Stat, d: number) => {
     const v = stats[k] + d;
@@ -185,8 +185,10 @@
   <textarea id="backstory" bind:value={backstory} rows="6" maxlength={BACKSTORY_MAX}></textarea>
   <p class="small muted count">{backstory.length}/{BACKSTORY_MAX}</p>
 
-  <label for="pin">PIN (optional, 4 digits, so nobody else can take this character)</label>
-  <input id="pin" bind:value={pin} inputmode="numeric" maxlength="4" placeholder="1234" />
+  <label for="pin">PIN (4 digits)</label>
+  <input id="pin" bind:value={pin} inputmode="numeric" maxlength="4" placeholder="1234" required />
+  <p class="small muted hint">Your character lives on after this campaign. You need the PIN to play it again, in this or any other campaign.</p>
+  {#if pin && !/^\d{4}$/.test(pin)}<p class="small warn">Exactly 4 digits.</p>{/if}
 
   <div class="row actions">
     <button type="button" class="ghost" onclick={onCancel}>Back</button>
@@ -200,6 +202,10 @@
   }
   .between {
     justify-content: space-between;
+  }
+  .warn {
+    color: var(--danger, #e66);
+    margin: 0.25rem 0 0;
   }
   .hint {
     margin: 0 0 0.5rem;

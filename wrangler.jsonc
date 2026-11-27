@@ -13,9 +13,13 @@
   "durable_objects": {
     "bindings": [
       { "name": "CAMPAIGN", "class_name": "Campaign" },
-      { "name": "REGISTRY", "class_name": "Registry" }
+      { "name": "REGISTRY", "class_name": "Registry" },
+      { "name": "ROSTER", "class_name": "Roster" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Campaign", "Registry"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Campaign", "Registry"] },
+    { "tag": "v2", "new_sqlite_classes": ["Roster"] }
+  ],
   "observability": { "enabled": true }
 }

@@ -21,6 +21,7 @@ class Client {
   token = "";
   errors: string[] = [];
   history: Extract<ServerMsg, { t: "state" }>[] = [];
+  conflicts: Extract<ServerMsg, { t: "roster_conflict" }>[] = [];
   constructor(public label: string) {}
   async connect(code: string) {
     this.ws = new WebSocket(`${WS_BASE}/ws/${code}`);
@@ -32,6 +33,7 @@ class Client {
       }
       if (m.t === "welcome") this.token = m.token;
       if (m.t === "error") this.errors.push(m.message);
+      if (m.t === "roster_conflict") this.conflicts.push(m);
     });
     await new Promise((r) => this.ws.once("open", r));
   }
@@ -65,7 +67,7 @@ const char = (name: string, extra: Partial<NewCharacterInput> = {}): NewCharacte
     { name: "Wiggle Moustache", description: "A charming wiggle that makes people more agreeable.", usesPerRest: 2, kind: "boost", boostStat: "charm" },
   ],
   items: ["2x Healing potion", "Sword"],
-  pin: "",
+  pin: "1111",
   ...extra,
 });
 
@@ -396,8 +398,9 @@ async function main() {
   const { code: code3 } = (await imp.json()) as { code: string };
   check(imp.status === 201, `import -> ${code3}`);
   check(Object.keys(exp.avatars ?? {}).length === 1, "export includes portraits");
-  const thorinId = exp.characters.find((c: any) => c.name === "Thorin").id;
-  check((await fetch(`${BASE}/api/avatar/${code3}/${thorinId}?v=1`)).ok, "import restores portraits");
+  const imported = (await (await fetch(`${BASE}/api/campaigns/${code3}/export`)).json()) as any;
+  const thorinImp = imported.characters.find((c: any) => c.name === "Thorin");
+  check(!thorinImp.rosterId && (await fetch(`${BASE}/api/avatar/${code3}/${thorinImp.id}?v=1`)).ok, "import restores portraits (as the campaign's own copy of a roster character)");
   const lib = (await (await fetch(`${BASE}/api/campaigns`)).json()) as any[];
   check(lib.find((x) => x.code === code)?.party.includes("Thorin"), "library card shows the party");
   check(screen.view.costUsd > 0, `cost tracked: $${screen.view.costUsd}`);
@@ -446,7 +449,94 @@ async function main() {
   scr.ws.close();
   await fetch(`${BASE}/api/campaigns/${code4}`, { method: "DELETE" });
 
+  // ---- Roster: characters outside campaigns ----
+  const newCampaign = async (label: string) => {
+    const { code: k } = (await (await fetch(`${BASE}/api/campaigns`, { method: "POST", body: JSON.stringify({ prompt: label }) })).json()) as { code: string };
+    const sc = new Client(`screen-${label}`);
+    await sc.connect(k);
+    sc.send({ t: "hello", role: "screen" });
+    await sc.until(() => !!sc.view?.blurb && !sc.view.busy, `story ${label}`, 8000);
+    return { k, sc };
+  };
+  const joinAs = async (k: string, name: string) => {
+    const cl = new Client(name);
+    await cl.connect(k);
+    cl.send({ t: "hello", role: "phone" });
+    cl.send({ t: "join", name });
+    await cl.until(() => !!cl.you, `${name} joined`);
+    return cl;
+  };
+  const X = await newCampaign("x");
+  const rp = await joinAs(X.k, "Rita");
+  rp.send({ t: "create_character", character: char("Rosa", { pin: "" }) });
+  await rp.until(() => rp.errors.some((e) => e.includes("PIN")), "pin required");
+  check(rp.errors.some((e) => e.includes("4-digit PIN")), "a PIN is mandatory for new characters");
+  rp.send({ t: "create_character", character: char("Rosa", { pin: "2222" }) });
+  await rp.until(() => rp.you?.character?.name === "Rosa", "rosa created");
+  let rosterList = (await (await fetch(`${BASE}/api/roster`)).json()) as any[];
+  const rosa = rosterList.find((r) => r.name === "Rosa");
+  check(rosa?.campaignCode === X.k, "new character is in the roster, marked as in this campaign");
+  X.sc.send({ t: "begin" });
+  await X.sc.until(() => X.sc.view.started && !X.sc.view.busy, "x started", 8000);
+  rp.send({ t: "say", text: "I drink a potion", aloud: true });
+  rp.send({ t: "send_to_dm" });
+  await rp.until(() => !rp.view.busy && rp.view.pending.length === 0 && rp.you?.character?.inventory.find((i) => i.name === "Healing potion")?.qty === 1, "potion", 8000);
+  check(rp.you?.character?.inventory.find((i) => i.name === "Healing potion")?.qty === 1, "item used up in campaign X");
+
+  // Deleting the campaign keeps the character, with its latest state
+  rp.ws.close();
+  X.sc.ws.close();
+  await fetch(`${BASE}/api/campaigns/${X.k}`, { method: "DELETE" });
+  rosterList = (await (await fetch(`${BASE}/api/roster`)).json()) as any[];
+  check(rosterList.find((r) => r.id === rosa.id)?.campaignCode === null, "deleting a campaign releases its characters instead of deleting them");
+
+  const Y = await newCampaign("y");
+  const ry = await joinAs(Y.k, "Rita");
+  ry.send({ t: "claim_roster", rosterId: rosa.id, pin: "9999" });
+  await ry.until(() => ry.errors.some((e) => e.includes("Wrong PIN")), "wrong pin");
+  check(ry.errors.some((e) => e.includes("Wrong PIN")), "wrong PIN can't take a roster character");
+  ry.send({ t: "claim_roster", rosterId: rosa.id, pin: "2222" });
+  await ry.until(() => ry.you?.character?.name === "Rosa", "rosa in Y");
+  const rc = ry.you!.character!;
+  check(rc.inventory.find((i) => i.name === "Healing potion")?.qty === 1 && rc.inventory.some((i) => i.name === "Sword"), "items carry over into the next campaign");
+  check(rc.health === rc.maxHealth && rc.abilities.every((a) => a.usesLeft === a.usesPerRest), "joining a new campaign counts as a rest");
+
+  // In one campaign at a time: move or copy
+  const Z = await newCampaign("z");
+  const rz = await joinAs(Z.k, "Rita2");
+  rz.send({ t: "claim_roster", rosterId: rosa.id, pin: "2222" });
+  await rz.until(() => rz.conflicts.length > 0, "conflict");
+  check(rz.conflicts[0]?.campaignCode === Y.k && !rz.you?.character, "picking a character that's in another campaign asks first");
+  rz.send({ t: "claim_roster", rosterId: rosa.id, pin: "2222", mode: "copy", copyName: "Rosa" });
+  await rz.until(() => rz.errors.some((e) => e.includes("already a character called")), "copy name taken");
+  check(rz.errors.some((e) => e.includes("already a character called")), "a copy needs its own name");
+  rz.send({ t: "claim_roster", rosterId: rosa.id, pin: "2222", mode: "copy", copyName: "Rosa the Second" });
+  await rz.until(() => rz.you?.character?.name === "Rosa the Second", "copy");
+  check(rz.you?.character?.inventory.find((i) => i.name === "Healing potion")?.qty === 1, "a copy starts with the same stats and items");
+  rosterList = (await (await fetch(`${BASE}/api/roster`)).json()) as any[];
+  check(rosterList.find((r) => r.id === rosa.id)?.campaignCode === Y.k && rosterList.some((r) => r.name === "Rosa the Second" && r.campaignCode === Z.k), "the original stays in its campaign, the copy is a new roster character");
+  const rz2 = await joinAs(Z.k, "Rita3");
+  rz2.send({ t: "claim_roster", rosterId: rosa.id, pin: "2222", mode: "move" });
+  await rz2.until(() => rz2.you?.character?.name === "Rosa", "moved");
+  await Y.sc.until(() => !Y.sc.view.characters.some((x) => x.name === "Rosa"), "dropped from Y");
+  check(!Y.sc.view.characters.some((x) => x.name === "Rosa") && Y.sc.view.log.some((m) => m.text.includes("left for another adventure")), "moving takes the character out of its old campaign");
+  await ry.until(() => ry.you?.character === null, "ry released");
+  check(ry.you?.character === null, "the old campaign's player goes back to picking a character");
+  const del = await fetch(`${BASE}/api/roster/${rosa.id}`, { method: "DELETE", body: JSON.stringify({ pin: "2222" }) });
+  check(del.status === 409, "a character in a campaign can't be deleted from the roster");
+
+  for (const cl of [ry, rz, rz2, Y.sc, Z.sc]) cl.ws.close();
+  await fetch(`${BASE}/api/campaigns/${Y.k}`, { method: "DELETE" });
+  await fetch(`${BASE}/api/campaigns/${Z.k}`, { method: "DELETE" });
+  const delWrong = await fetch(`${BASE}/api/roster/${rosa.id}`, { method: "DELETE", body: JSON.stringify({ pin: "0000" }) });
+  check(delWrong.status === 403, "deleting from the roster needs the PIN");
+  for (const pin of ["2222"]) for (const r of (await (await fetch(`${BASE}/api/roster`)).json()) as any[]) await fetch(`${BASE}/api/roster/${r.id}`, { method: "DELETE", body: JSON.stringify({ pin }) });
+
   for (const x of [screen, a2, b, c, d]) x.ws.close();
+  // Clean up: delete the campaign (releases roster characters), then the roster characters.
+  await fetch(`${BASE}/api/campaigns/${code}`, { method: "DELETE" });
+  for (const r of (await (await fetch(`${BASE}/api/roster`)).json()) as any[])
+    for (const pin of ["1234", "1111"]) await fetch(`${BASE}/api/roster/${r.id}`, { method: "DELETE", body: JSON.stringify({ pin }) });
   await fetch(`${BASE}/api/campaigns/${code2}`, { method: "DELETE" });
   await fetch(`${BASE}/api/campaigns/${code3}`, { method: "DELETE" });
   console.log(failures ? `\n${failures} FAILED` : "\nAll checks passed");

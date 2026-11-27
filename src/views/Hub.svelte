@@ -1,5 +1,7 @@
 <script lang="ts">
-  import type { CampaignSummary, Strictness } from "../../shared/types";
+  import type { CampaignSummary, RosterSummary, Strictness } from "../../shared/types";
+  import { rosterAvatarUrl } from "../../shared/types";
+  import Avatar from "../components/Avatar.svelte";
   import { APP_VERSION } from "../../shared/version";
   import Invite from "../components/Invite.svelte";
 
@@ -28,6 +30,27 @@
   }
   load();
 
+  let roster = $state<RosterSummary[] | null>(null);
+  let deleting = $state<{ id: string; pin: string } | null>(null);
+  const loadRoster = () =>
+    fetch("/api/roster")
+      .then((r) => r.json())
+      .then((r: RosterSummary[]) => (roster = r))
+      .catch(() => (roster = []));
+  loadRoster();
+
+  async function deleteCharacter(r: RosterSummary, e: SubmitEvent) {
+    e.preventDefault();
+    if (!deleting || !confirm(`Delete ${r.name} for good?`)) return;
+    const res = await fetch(`/api/roster/${encodeURIComponent(r.id)}`, { method: "DELETE", body: JSON.stringify({ pin: deleting.pin }) });
+    if (!res.ok) {
+      error = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Could not delete.";
+      return;
+    }
+    deleting = null;
+    loadRoster();
+  }
+
   async function post(url: string, body?: unknown) {
     const r = await fetch(url, { method: "POST", body: body ? JSON.stringify(body) : undefined });
     const data = await r.json();
@@ -55,9 +78,10 @@
   }
 
   async function remove(c: CampaignSummary) {
-    if (!confirm(`Delete "${c.title}" for good? Export it first if you want a backup.`)) return;
+    if (!confirm(`Delete "${c.title}" for good? Export it first if you want a backup. Saved characters in it are kept.`)) return;
     await fetch(`/api/campaigns/${c.code}`, { method: "DELETE" });
     load();
+    loadRoster();
   }
 
   async function importFile(e: Event) {
@@ -179,6 +203,39 @@
     {/if}
   </section>
 
+  <section>
+    <h2>Characters</h2>
+    <p class="small muted">Characters live outside campaigns and keep their stats and items. Each is in one campaign at a time; a player can move it or make a copy when joining another.</p>
+    {#if roster === null}
+      <p class="muted">Loading…</p>
+    {:else if roster.length === 0}
+      <p class="muted">No saved characters yet. They appear here once someone creates one on their phone.</p>
+    {:else}
+      <div class="list">
+        {#each roster as r (r.id)}
+          <article class="card char">
+            <div class="row">
+              <Avatar src={rosterAvatarUrl(r)} name={r.name} size={40} />
+              <div class="grow">
+                <b>{r.name}</b>
+                <div class="small muted">{r.concept}{r.campaignCode ? ` · in "${r.campaignTitle}"` : " · free"}</div>
+              </div>
+              {#if !r.campaignCode}
+                <button class="ghost danger" onclick={() => (deleting = deleting?.id === r.id ? null : { id: r.id, pin: "" })}>Delete</button>
+              {/if}
+            </div>
+            {#if deleting?.id === r.id}
+              <form class="row" onsubmit={(e) => deleteCharacter(r, e)}>
+                <input bind:value={deleting.pin} inputmode="numeric" maxlength="4" placeholder="PIN" aria-label="PIN for {r.name}" />
+                <button class="danger" disabled={!/^\d{4}$/.test(deleting.pin)}>Delete {r.name}</button>
+              </form>
+            {/if}
+          </article>
+        {/each}
+      </div>
+    {/if}
+  </section>
+
   <footer class="small muted">Version {APP_VERSION}</footer>
 
   {#if error}<div class="toast" role="alert">{error}</div>{/if}
@@ -245,6 +302,13 @@
     flex-direction: column;
     gap: 0.75rem;
     margin-top: 0.75rem;
+  }
+  .char .grow {
+    flex: 1;
+    min-width: 0;
+  }
+  .char form {
+    margin-top: 0.5rem;
   }
   .camp h3 {
     margin: 0;
